@@ -108,7 +108,7 @@ CONFIG_BOOTDELAY=2
 CONFIG_USE_BOOTARGS=y
 CONFIG_BOOTARGS="console=ttyS0,115200 panic=5 rootwait root=/dev/mmcblk0p3 earlyprintk rw"
 CONFIG_USE_BOOTCOMMAND=y
-CONFIG_BOOTCOMMAND="load mmc 0:2 0x80C00000 suniv-f1c100s-generic.dtbload mmc 0:2 0x80008000 zImagebootz 0x80008000 - 0x80C00000"
+CONFIG_BOOTCOMMAND="load mmc 0:2 0x80C00000 suniv-f1c100s-generic.dtb; load mmc 0:2 0x80008000 zImagebootz 0x80008000 - 0x80C00000"
 CONFIG_USE_PREBOOT=y
 CONFIG_PREBOOT=""
 CONFIG_MENU=y
