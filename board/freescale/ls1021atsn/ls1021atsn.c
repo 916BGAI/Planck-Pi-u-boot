@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
-/* Copyright 2016-2019 NXP Semiconductors
+/* Copyright 2016-2019, 2021 NXP
  */
 #include <common.h>
 #include <clock_legacy.h>
@@ -11,6 +11,7 @@
 #include <asm/arch/immap_ls102xa.h>
 #include <asm/arch/ls102xa_soc.h>
 #include <asm/arch/fsl_serdes.h>
+#include <asm/global_data.h>
 #include <linux/delay.h>
 #include "../common/sleep.h"
 #include <fsl_validate.h>
@@ -27,7 +28,7 @@ DECLARE_GLOBAL_DATA_PTR;
 static void ddrmc_init(void)
 {
 #if (!defined(CONFIG_SPL) || defined(CONFIG_SPL_BUILD))
-	struct ccsr_ddr *ddr = (struct ccsr_ddr *)CONFIG_SYS_FSL_DDR_ADDR;
+	struct ccsr_ddr *ddr = (struct ccsr_ddr *)CFG_SYS_FSL_DDR_ADDR;
 	u32 temp_sdram_cfg, tmp;
 
 	out_be32(&ddr->sdram_cfg, DDR_SDRAM_CFG);
@@ -46,7 +47,7 @@ static void ddrmc_init(void)
 	if (is_warm_boot()) {
 		out_be32(&ddr->sdram_cfg_2,
 			 DDR_SDRAM_CFG_2 & ~SDRAM_CFG2_D_INIT);
-		out_be32(&ddr->init_addr, CONFIG_SYS_SDRAM_BASE);
+		out_be32(&ddr->init_addr, CFG_SYS_SDRAM_BASE);
 		out_be32(&ddr->init_ext_addr, (1 << 31));
 
 		/* DRAM VRef will not be trained */
@@ -122,14 +123,14 @@ int dram_init(void)
 	return 0;
 }
 
-int board_eth_init(bd_t *bis)
+int board_eth_init(struct bd_info *bis)
 {
 	return pci_eth_init(bis);
 }
 
 int board_early_init_f(void)
 {
-	struct ccsr_scfg *scfg = (struct ccsr_scfg *)CONFIG_SYS_FSL_SCFG_ADDR;
+	struct ccsr_scfg *scfg = (struct ccsr_scfg *)CFG_SYS_FSL_SCFG_ADDR;
 
 #ifdef CONFIG_TSEC_ENET
 	/*
@@ -187,7 +188,7 @@ void board_init_f(ulong dummy)
 	 * in last boot.
 	 */
 	if (is_warm_boot()) {
-		second_uboot = (void (*)(void))CONFIG_SYS_TEXT_BASE;
+		second_uboot = (void (*)(void))CONFIG_TEXT_BASE;
 		second_uboot();
 	}
 
@@ -237,10 +238,7 @@ int misc_init_r(void)
 #ifdef CONFIG_FSL_DEVICE_DISABLE
 	device_disable(devdis_tbl, ARRAY_SIZE(devdis_tbl));
 #endif
-
-#ifdef CONFIG_FSL_CAAM
-	return sec_init();
-#endif
+	return 0;
 }
 #endif
 
@@ -253,7 +251,7 @@ void board_sleep_prepare(void)
 }
 #endif
 
-int ft_board_setup(void *blob, bd_t *bd)
+int ft_board_setup(void *blob, struct bd_info *bd)
 {
 	ft_cpu_setup(blob, bd);
 

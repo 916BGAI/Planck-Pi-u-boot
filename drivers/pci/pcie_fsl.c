@@ -13,6 +13,7 @@
 #include <pci.h>
 #include <asm/fsl_pci.h>
 #include <asm/fsl_serdes.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
 #include <linux/delay.h>
 #include "pcie_fsl.h"
@@ -29,16 +30,16 @@ static int fsl_pcie_addr_valid(struct fsl_pcie *pcie, pci_dev_t bdf)
 	if (!pcie->enabled)
 		return -ENXIO;
 
-	if (PCI_BUS(bdf) < bus->seq)
+	if (PCI_BUS(bdf) < dev_seq(bus))
 		return -EINVAL;
 
-	if (PCI_BUS(bdf) > bus->seq && (!fsl_pcie_link_up(pcie) || pcie->mode))
+	if (PCI_BUS(bdf) > dev_seq(bus) && (!fsl_pcie_link_up(pcie) || pcie->mode))
 		return -EINVAL;
 
-	if (PCI_BUS(bdf) == bus->seq && (PCI_DEV(bdf) > 0 || PCI_FUNC(bdf) > 0))
+	if (PCI_BUS(bdf) == dev_seq(bus) && (PCI_DEV(bdf) > 0 || PCI_FUNC(bdf) > 0))
 		return -EINVAL;
 
-	if (PCI_BUS(bdf) == (bus->seq + 1) && (PCI_DEV(bdf) > 0))
+	if (PCI_BUS(bdf) == (dev_seq(bus) + 1) && (PCI_DEV(bdf) > 0))
 		return -EINVAL;
 
 	return 0;
@@ -57,8 +58,17 @@ static int fsl_pcie_read_config(const struct udevice *bus, pci_dev_t bdf,
 		return 0;
 	}
 
-	bdf = bdf - PCI_BDF(bus->seq, 0, 0);
-	val = bdf | (offset & 0xfc) | ((offset & 0xf00) << 16) | 0x80000000;
+	/* Skip Freescale PCIe controller's PEXCSRBAR register */
+	if (PCI_BUS(bdf) - dev_seq(bus) == 0 &&
+	    PCI_DEV(bdf) == 0 && PCI_FUNC(bdf) == 0 &&
+	    (offset & ~3) == PCI_BASE_ADDRESS_0) {
+		*valuep = 0;
+		return 0;
+	}
+
+	val = PCI_CONF1_EXT_ADDRESS(PCI_BUS(bdf) - dev_seq(bus),
+				    PCI_DEV(bdf), PCI_FUNC(bdf),
+				    offset);
 	out_be32(&regs->cfg_addr, val);
 
 	sync();
@@ -93,8 +103,15 @@ static int fsl_pcie_write_config(struct udevice *bus, pci_dev_t bdf,
 	if (fsl_pcie_addr_valid(pcie, bdf))
 		return 0;
 
-	bdf = bdf - PCI_BDF(bus->seq, 0, 0);
-	val = bdf | (offset & 0xfc) | ((offset & 0xf00) << 16) | 0x80000000;
+	/* Skip Freescale PCIe controller's PEXCSRBAR register */
+	if (PCI_BUS(bdf) - dev_seq(bus) == 0 &&
+	    PCI_DEV(bdf) == 0 && PCI_FUNC(bdf) == 0 &&
+	    (offset & ~3) == PCI_BASE_ADDRESS_0)
+		return 0;
+
+	val = PCI_CONF1_EXT_ADDRESS(PCI_BUS(bdf) - dev_seq(bus),
+				    PCI_DEV(bdf), PCI_FUNC(bdf),
+				    offset);
 	out_be32(&regs->cfg_addr, val);
 
 	sync();
@@ -123,7 +140,7 @@ static int fsl_pcie_hose_read_config(struct fsl_pcie *pcie, uint offset,
 	int ret;
 	struct udevice *bus = pcie->bus;
 
-	ret = fsl_pcie_read_config(bus, PCI_BDF(bus->seq, 0, 0),
+	ret = fsl_pcie_read_config(bus, PCI_BDF(dev_seq(bus), 0, 0),
 				   offset, valuep, size);
 
 	return ret;
@@ -134,7 +151,7 @@ static int fsl_pcie_hose_write_config(struct fsl_pcie *pcie, uint offset,
 {
 	struct udevice *bus = pcie->bus;
 
-	return fsl_pcie_write_config(bus, PCI_BDF(bus->seq, 0, 0),
+	return fsl_pcie_write_config(bus, PCI_BDF(dev_seq(bus), 0, 0),
 				     offset, value, size);
 }
 
@@ -340,8 +357,8 @@ static int fsl_pcie_setup_outbound_wins(struct fsl_pcie *pcie)
 
 static int fsl_pcie_setup_inbound_wins(struct fsl_pcie *pcie)
 {
-	phys_addr_t phys_start = CONFIG_SYS_PCI_MEMORY_PHYS;
-	pci_addr_t bus_start = CONFIG_SYS_PCI_MEMORY_BUS;
+	phys_addr_t phys_start = CFG_SYS_PCI_MEMORY_PHYS;
+	pci_addr_t bus_start = CFG_SYS_PCI_MEMORY_BUS;
 	u64 sz = min((u64)gd->ram_size, (1ull << 32));
 	pci_size_t pci_sz;
 	int idx;
@@ -364,8 +381,8 @@ static int fsl_pcie_setup_inbound_wins(struct fsl_pcie *pcie)
 		sz = 2ull << __ilog2_u64(sz);
 
 	fsl_pcie_setup_inbound_win(pcie, idx--, true,
-				   CONFIG_SYS_PCI_MEMORY_PHYS,
-				   CONFIG_SYS_PCI_MEMORY_BUS, sz);
+				   CFG_SYS_PCI_MEMORY_PHYS,
+				   CFG_SYS_PCI_MEMORY_BUS, sz);
 #if defined(CONFIG_PHYS_64BIT) && defined(CONFIG_SYS_PCI_64BIT)
 	/*
 	 * On 64-bit capable systems, set up a mapping for all of DRAM
@@ -377,12 +394,12 @@ static int fsl_pcie_setup_inbound_wins(struct fsl_pcie *pcie)
 		pci_sz = 1ull << (__ilog2_u64(gd->ram_size) + 1);
 
 	dev_dbg(pcie->bus, "R64 bus_start: %llx phys_start: %llx size: %llx\n",
-		(u64)CONFIG_SYS_PCI64_MEMORY_BUS,
-		(u64)CONFIG_SYS_PCI_MEMORY_PHYS, (u64)pci_sz);
+		(u64)CFG_SYS_PCI64_MEMORY_BUS,
+		(u64)CFG_SYS_PCI_MEMORY_PHYS, (u64)pci_sz);
 
 	fsl_pcie_setup_inbound_win(pcie, idx--, true,
-				   CONFIG_SYS_PCI_MEMORY_PHYS,
-				   CONFIG_SYS_PCI64_MEMORY_BUS, pci_sz);
+				   CFG_SYS_PCI_MEMORY_PHYS,
+				   CFG_SYS_PCI64_MEMORY_BUS, pci_sz);
 #endif
 
 	return 0;
@@ -394,6 +411,19 @@ static int fsl_pcie_init_atmu(struct fsl_pcie *pcie)
 	fsl_pcie_setup_inbound_wins(pcie);
 
 	return 0;
+}
+
+static void fsl_pcie_dbi_read_only_reg_write_enable(struct fsl_pcie *pcie,
+						    bool enable)
+{
+	u32 val;
+
+	fsl_pcie_hose_read_config_dword(pcie, DBI_RO_WR_EN, &val);
+	if (enable)
+		val |= 1;
+	else
+		val &= ~1;
+	fsl_pcie_hose_write_config_dword(pcie, DBI_RO_WR_EN, val);
 }
 
 static int fsl_pcie_init_port(struct fsl_pcie *pcie)
@@ -447,7 +477,7 @@ static int fsl_pcie_init_port(struct fsl_pcie *pcie)
 	if (!fsl_pcie_link_up(pcie)) {
 		serdes_corenet_t *srds_regs;
 
-		srds_regs = (void *)CONFIG_SYS_FSL_CORENET_SERDES_ADDR;
+		srds_regs = (void *)CFG_SYS_FSL_CORENET_SERDES_ADDR;
 		val_32 = in_be32(&srds_regs->srdspccr0);
 
 		if ((val_32 >> 28) == 3) {
@@ -470,7 +500,7 @@ static int fsl_pcie_init_port(struct fsl_pcie *pcie)
 	 * Set to 0 to protect the read-only registers.
 	 */
 #ifdef CONFIG_SYS_FSL_ERRATUM_A007815
-	clrbits_be32(&regs->dbi_ro_wr_en, 0x01);
+	fsl_pcie_dbi_read_only_reg_write_enable(pcie, false);
 #endif
 
 	/*
@@ -504,24 +534,23 @@ static int fsl_pcie_init_port(struct fsl_pcie *pcie)
 
 static int fsl_pcie_fixup_classcode(struct fsl_pcie *pcie)
 {
-	ccsr_fsl_pci_t *regs = pcie->regs;
 	u32 classcode_reg;
 	u32 val;
 
 	if (pcie->block_rev >= PEX_IP_BLK_REV_3_0) {
 		classcode_reg = PCI_CLASS_REVISION;
-		setbits_be32(&regs->dbi_ro_wr_en, 0x01);
+		fsl_pcie_dbi_read_only_reg_write_enable(pcie, true);
 	} else {
 		classcode_reg = CSR_CLASSCODE;
 	}
 
 	fsl_pcie_hose_read_config_dword(pcie, classcode_reg, &val);
 	val &= 0xff;
-	val |= PCI_CLASS_BRIDGE_PCI << 16;
+	val |= PCI_CLASS_BRIDGE_PCI_NORMAL << 8;
 	fsl_pcie_hose_write_config_dword(pcie, classcode_reg, val);
 
 	if (pcie->block_rev >= PEX_IP_BLK_REV_3_0)
-		clrbits_be32(&regs->dbi_ro_wr_en, 0x01);
+		fsl_pcie_dbi_read_only_reg_write_enable(pcie, false);
 
 	return 0;
 }
@@ -581,7 +610,7 @@ static int fsl_pcie_probe(struct udevice *dev)
 	return 0;
 }
 
-static int fsl_pcie_ofdata_to_platdata(struct udevice *dev)
+static int fsl_pcie_of_to_plat(struct udevice *dev)
 {
 	struct fsl_pcie *pcie = dev_get_priv(dev);
 	struct fsl_pcie_data *info;
@@ -631,7 +660,7 @@ static struct fsl_pcie_data t2080_data = {
 };
 
 static const struct udevice_id fsl_pcie_ids[] = {
-	{ .compatible = "fsl,pcie-mpc8548", .data = (ulong)&p1_p2_data },
+	{ .compatible = "fsl,mpc8548-pcie", .data = (ulong)&p1_p2_data },
 	{ .compatible = "fsl,pcie-p1_p2", .data = (ulong)&p1_p2_data },
 	{ .compatible = "fsl,pcie-p2041", .data = (ulong)&p2041_data },
 	{ .compatible = "fsl,pcie-p3041", .data = (ulong)&p2041_data },
@@ -649,7 +678,7 @@ U_BOOT_DRIVER(fsl_pcie) = {
 	.id = UCLASS_PCI,
 	.of_match = fsl_pcie_ids,
 	.ops = &fsl_pcie_ops,
-	.ofdata_to_platdata = fsl_pcie_ofdata_to_platdata,
+	.of_to_plat = fsl_pcie_of_to_plat,
 	.probe = fsl_pcie_probe,
-	.priv_auto_alloc_size = sizeof(struct fsl_pcie),
+	.priv_auto	= sizeof(struct fsl_pcie),
 };

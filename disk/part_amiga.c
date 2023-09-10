@@ -11,8 +11,6 @@
 #include "part_amiga.h"
 #include <part.h>
 
-#ifdef CONFIG_HAVE_BLOCK_DEVICE
-
 #undef AMIGA_DEBUG
 
 #ifdef AMIGA_DEBUG
@@ -135,7 +133,7 @@ struct rigid_disk_block *get_rdisk(struct blk_desc *dev_desc)
 
     s = env_get("amiga_scanlimit");
     if (s)
-	limit = simple_strtoul(s, NULL, 10);
+	limit = dectoul(s, NULL);
     else
 	limit = AMIGA_BLOCK_LIMIT;
 
@@ -175,7 +173,7 @@ struct bootcode_block *get_bootcode(struct blk_desc *dev_desc)
 
     s = env_get("amiga_scanlimit");
     if (s)
-	limit = simple_strtoul(s, NULL, 10);
+	limit = dectoul(s, NULL);
     else
 	limit = AMIGA_BLOCK_LIMIT;
 
@@ -387,5 +385,3 @@ U_BOOT_PART_TYPE(amiga) = {
 	.print		= part_print_amiga,
 	.test		= part_test_amiga,
 };
-
-#endif

@@ -26,31 +26,6 @@ union gen_boot_header {
 #define SF_BOOT_NAME		"SF_BOOT"
 #define SDMMC_BOOT_NAME		"SDMMC_BOOT"
 
-/* Header for NAND */
-union nand_boot_header {
-	struct {
-		char name[12];
-		char version[4];
-		char id[8];
-		uint16_t ioif;
-		uint16_t pagesize;
-		uint16_t addrcycles;
-		uint16_t oobsize;
-		uint16_t pages_of_block;
-		uint16_t numblocks;
-		uint16_t writesize_shift;
-		uint16_t erasesize_shift;
-		uint8_t dummy[60];
-		uint8_t ecc_parity[28];
-	};
-
-	uint8_t data[0x80];
-};
-
-#define NAND_BOOT_NAME		"BOOTLOADER!"
-#define NAND_BOOT_VERSION	"V006"
-#define NAND_BOOT_ID		"NFIINFO"
-
 /* BootROM layout header */
 struct brom_layout_header {
 	char name[8];
@@ -88,13 +63,13 @@ struct gen_device_header {
 
 /* BootROM header definitions */
 struct gfh_common_header {
-	uint8_t magic[3];
-	uint8_t version;
+	uint32_t magic_version;
 	uint16_t size;
 	uint16_t type;
 };
 
-#define GFH_HEADER_MAGIC	"MMM"
+#define GFH_HEADER_MAGIC		0x4D4D4D
+#define GFH_HEADER_VERSION_SHIFT	24
 
 #define GFH_TYPE_FILE_INFO	0
 #define GFH_TYPE_BL_INFO	1
@@ -136,7 +111,9 @@ struct gfh_brom_cfg {
 	struct gfh_common_header gfh;
 	uint32_t cfg_bits;
 	uint32_t usbdl_by_auto_detect_timeout_ms;
-	uint8_t unused[0x48];
+	uint8_t unused[0x45];
+	uint8_t jump_bl_arm64;
+	uint8_t unused2[2];
 	uint32_t usbdl_by_kcol0_timeout_ms;
 	uint32_t usbdl_by_flag_timeout_ms;
 	uint32_t pad;
@@ -146,6 +123,8 @@ struct gfh_brom_cfg {
 #define GFH_BROM_CFG_USBDL_AUTO_DETECT_DIS		0x10
 #define GFH_BROM_CFG_USBDL_BY_KCOL0_TIMEOUT_EN		0x80
 #define GFH_BROM_CFG_USBDL_BY_FLAG_TIMEOUT_EN		0x100
+#define GFH_BROM_CFG_JUMP_BL_ARM64_EN			0x1000
+#define GFH_BROM_CFG_JUMP_BL_ARM64			0x64
 
 struct gfh_bl_sec_key {
 	struct gfh_common_header gfh;
@@ -195,5 +174,29 @@ union lk_hdr {
 };
 
 #define LK_PART_MAGIC		0x58881688
+
+/* MT7621 NAND SPL image header */
+
+#define MT7621_IH_NMLEN			12
+#define MT7621_IH_CRC_POLYNOMIAL	0x04c11db7
+
+struct mt7621_nand_header {
+	char ih_name[MT7621_IH_NMLEN];
+	uint32_t nand_ac_timing;
+	uint32_t ih_stage_offset;
+	uint32_t ih_bootloader_offset;
+	uint32_t nand_info_1_data;
+	uint32_t crc;
+};
+
+struct mt7621_stage1_header {
+	uint32_t jump_insn[2];
+	uint32_t ep;
+	uint32_t stage_size;
+	uint32_t has_stage2;
+	uint32_t next_ep;
+	uint32_t next_size;
+	uint32_t next_offset;
+};
 
 #endif /* _MTK_IMAGE_H */

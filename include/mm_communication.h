@@ -6,12 +6,20 @@
  *  Copyright (c) 2017, Intel Corporation. All rights reserved.
  *  Copyright (C) 2020 Linaro Ltd. <sughosh.ganu@linaro.org>
  *  Copyright (C) 2020 Linaro Ltd. <ilias.apalodimas@linaro.org>
+ *  Copyright 2022-2023 Arm Limited and/or its affiliates <open-source-office@arm.com>
+ *    Authors:
+ *      Abdellatif El Khlifi <abdellatif.elkhlifi@arm.com>
  */
 
 #ifndef _MM_COMMUNICATION_H_
 #define _MM_COMMUNICATION_H_
 
 #include <part_efi.h>
+
+#if CONFIG_IS_ENABLED(ARM_FFA_TRANSPORT)
+/* MM service UUID string (big-endian format). This UUID is  common across all MM SPs */
+#define MM_SP_UUID	"33d532ed-e699-0942-c09c-a798d9cd722d"
+#endif
 
 /*
  * Interface to the pseudo Trusted Application (TA), which provides a
@@ -43,7 +51,7 @@
  * To avoid confusion in interpreting frames, the communication buffer should
  * always begin with efi_mm_communicate_header.
  */
-struct efi_mm_communicate_header {
+struct __packed efi_mm_communicate_header {
 	efi_guid_t header_guid;
 	size_t     message_len;
 	u8         data[];
@@ -52,14 +60,14 @@ struct efi_mm_communicate_header {
 #define MM_COMMUNICATE_HEADER_SIZE \
 	(sizeof(struct efi_mm_communicate_header))
 
-/* Defined in EDK2 ArmPkg/Include/IndustryStandard/ArmStdSmc.h */
+/* Defined in EDK2 ArmPkg/Include/IndustryStandard/ArmMmSvc.h */
 
-/* MM return error codes */
-#define ARM_SMC_MM_RET_SUCCESS              0
-#define ARM_SMC_MM_RET_NOT_SUPPORTED       -1
-#define ARM_SMC_MM_RET_INVALID_PARAMS      -2
-#define ARM_SMC_MM_RET_DENIED              -3
-#define ARM_SMC_MM_RET_NO_MEMORY           -4
+/* SPM return error codes */
+#define ARM_SVC_SPM_RET_SUCCESS               0
+#define ARM_SVC_SPM_RET_NOT_SUPPORTED        -1
+#define ARM_SVC_SPM_RET_INVALID_PARAMS       -2
+#define ARM_SVC_SPM_RET_DENIED               -3
+#define ARM_SVC_SPM_RET_NO_MEMORY            -5
 
 /* Defined in EDK2 MdeModulePkg/Include/Guid/SmmVariableCommon.h */
 
@@ -204,5 +212,57 @@ struct smm_variable_query_info {
 	u64 max_variable_size;
 	u32 attr;
 };
+
+#define VAR_CHECK_VARIABLE_PROPERTY_REVISION 0x0001
+#define VAR_CHECK_VARIABLE_PROPERTY_READ_ONLY BIT(0)
+/**
+ * struct var_check_property - Used to store variable properties in StMM
+ *
+ * @revision:   magic revision number for variable property checking
+ * @property:   properties mask for the variable used in StMM.
+ *              Currently RO flag is supported
+ * @attributes: variable attributes used in StMM checking when properties
+ *              for a variable are enabled
+ * @minsize:    minimum allowed size for variable payload checked against
+ *              smm_variable_access->datasize in StMM
+ * @maxsize:    maximum allowed size for variable payload checked against
+ *              smm_variable_access->datasize in StMM
+ *
+ * Defined in EDK2 as VAR_CHECK_VARIABLE_PROPERTY.
+ */
+struct var_check_property {
+	u16         revision;
+	u16         property;
+	u32         attributes;
+	efi_uintn_t minsize;
+	efi_uintn_t maxsize;
+};
+
+/**
+ * struct smm_variable_var_check_property - Used to communicate variable
+ *                                          properties with StMM
+ *
+ * @guid:       vendor GUID
+ * @name_size:  size of EFI name
+ * @property:   variable properties struct
+ * @name:       variable name
+ *
+ * Defined in EDK2 as SMM_VARIABLE_COMMUNICATE_VAR_CHECK_VARIABLE_PROPERTY.
+ */
+struct smm_variable_var_check_property {
+	efi_guid_t                guid;
+	efi_uintn_t               name_size;
+	struct var_check_property property;
+	u16                       name[];
+};
+
+#if CONFIG_IS_ENABLED(ARM_FFA_TRANSPORT)
+/* supported MM transports */
+enum mm_comms_select {
+	MM_COMMS_UNDEFINED,
+	MM_COMMS_FFA,
+	MM_COMMS_OPTEE
+};
+#endif
 
 #endif /* _MM_COMMUNICATION_H_ */

@@ -12,6 +12,7 @@
 #include <lmb.h>
 #include <log.h>
 #include <mapmem.h>
+#include <asm/global_data.h>
 #include <linux/kernel.h>
 #include <linux/sizes.h>
 
@@ -20,7 +21,7 @@ DECLARE_GLOBAL_DATA_PTR;
  * Image booting support
  */
 static int booti_start(struct cmd_tbl *cmdtp, int flag, int argc,
-		       char *const argv[], bootm_headers_t *images)
+		       char *const argv[], struct bootm_headers *images)
 {
 	int ret;
 	ulong ld;
@@ -42,7 +43,7 @@ static int booti_start(struct cmd_tbl *cmdtp, int flag, int argc,
 		debug("*  kernel: default image load address = 0x%08lx\n",
 				image_load_addr);
 	} else {
-		ld = simple_strtoul(argv[0], NULL, 16);
+		ld = hextoul(argv[0], NULL);
 		debug("*  kernel: cmdline image address = 0x%08lx\n", ld);
 	}
 
@@ -79,7 +80,8 @@ static int booti_start(struct cmd_tbl *cmdtp, int flag, int argc,
 
 	/* Handle BOOTM_STATE_LOADOS */
 	if (relocated_addr != ld) {
-		debug("Moving Image from 0x%lx to 0x%lx\n", ld, relocated_addr);
+		printf("Moving Image from 0x%lx to 0x%lx, end=%lx\n", ld,
+		       relocated_addr, relocated_addr + image_size);
 		memmove((void *)relocated_addr, (void *)ld, image_size);
 	}
 
@@ -93,7 +95,7 @@ static int booti_start(struct cmd_tbl *cmdtp, int flag, int argc,
 	 * Handle the BOOTM_STATE_FINDOTHER state ourselves as we do not
 	 * have a header that provide this informaiton.
 	 */
-	if (bootm_find_images(flag, argc, argv))
+	if (bootm_find_images(flag, argc, argv, relocated_addr, image_size))
 		return 1;
 
 	return 0;

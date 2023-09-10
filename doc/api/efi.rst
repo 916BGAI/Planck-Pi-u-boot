@@ -93,6 +93,8 @@ Runtime services
 Variable services
 ~~~~~~~~~~~~~~~~~
 
+.. kernel-doc:: include/efi_variable.h
+   :internal:
 .. kernel-doc:: lib/efi_loader/efi_variable.c
    :internal:
 
@@ -162,6 +164,18 @@ Unicode Collation protocol
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. kernel-doc:: lib/efi_loader/efi_unicode_collation.c
+   :internal:
+
+Firmware management protocol
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. kernel-doc:: lib/efi_loader/efi_firmware.c
+   :internal:
+
+Driver binding protocol
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. kernel-doc:: include/efi_driver.h
    :internal:
 
 Unit testing

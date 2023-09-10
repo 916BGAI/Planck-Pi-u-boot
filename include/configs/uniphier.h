@@ -7,10 +7,9 @@
 
 /* U-Boot - Common settings for UniPhier Family */
 
-#ifndef __CONFIG_UNIPHIER_COMMON_H__
-#define __CONFIG_UNIPHIER_COMMON_H__
+#ifndef __CONFIG_UNIPHIER_H__
+#define __CONFIG_UNIPHIER_H__
 
-#ifndef CONFIG_SPL_BUILD
 #include <config_distro_bootcmd.h>
 
 #ifdef CONFIG_CMD_MMC
@@ -20,7 +19,7 @@
 #endif
 
 #ifdef CONFIG_CMD_UBIFS
-#define BOOT_TARGET_DEVICE_UBIFS(func)	func(UBIFS, ubifs, 0)
+#define BOOT_TARGET_DEVICE_UBIFS(func)	func(UBIFS, ubifs, 0, UBI, boot)
 #else
 #define BOOT_TARGET_DEVICE_UBIFS(func)
 #endif
@@ -35,67 +34,17 @@
 	BOOT_TARGET_DEVICE_MMC(func)	\
 	BOOT_TARGET_DEVICE_UBIFS(func)	\
 	BOOT_TARGET_DEVICE_USB(func)
-#else
-#define BOOTENV
-#endif
-
-#define CONFIG_ARMV7_PSCI_1_0
-
-/*-----------------------------------------------------------------------
- * MMU and Cache Setting
- *----------------------------------------------------------------------*/
-
-#define CONFIG_SYS_MALLOC_LEN		(4 * 1024 * 1024)
-
-#define CONFIG_TIMESTAMP
-
-/* FLASH related */
-
-#define CONFIG_SYS_MAX_FLASH_SECT	256
-#define CONFIG_SYS_MONITOR_BASE		0
-#define CONFIG_SYS_MONITOR_LEN		0x000d0000	/* 832KB */
-#define CONFIG_SYS_FLASH_BASE		0
-
-/*
- * flash_toggle does not work for our support card.
- * We need to use flash_status_poll.
- */
-#define CONFIG_SYS_CFI_FLASH_STATUS_POLL
-
-#define CONFIG_FLASH_SHOW_PROGRESS	45 /* count down from 45/5: 9..1 */
-
-#define CONFIG_SYS_MAX_FLASH_BANKS_DETECT 1
-
-/* serial console configuration */
-
-#define CONFIG_SYS_CBSIZE		1024	/* Console I/O Buffer Size */
-/* Boot Argument Buffer Size */
-#define CONFIG_SYS_BARGSIZE		(CONFIG_SYS_CBSIZE)
-
-#define CONFIG_SYS_MMC_ENV_DEV		0
-#define CONFIG_SYS_MMC_ENV_PART		1
 
 #if !defined(CONFIG_ARM64)
-/* Time clock 1MHz */
-#define CONFIG_SYS_TIMER_RATE			1000000
+#define CFG_SYS_HZ_CLOCK			50000000
 #endif
 
-#define CONFIG_SYS_MAX_NAND_DEVICE			1
-#define CONFIG_SYS_NAND_ONFI_DETECTION
-#define CONFIG_SYS_NAND_REGS_BASE			0x68100000
-#define CONFIG_SYS_NAND_DATA_BASE			0x68000000
-#define CONFIG_SYS_NAND_BAD_BLOCK_POS			0
+#define CFG_SYS_NAND_REGS_BASE			0x68100000
+#define CFG_SYS_NAND_DATA_BASE			0x68000000
 
 /*
  * Network Configuration
  */
-#define CONFIG_SERVERIP			192.168.11.1
-#define CONFIG_IPADDR			192.168.11.10
-#define CONFIG_GATEWAYIP		192.168.11.1
-#define CONFIG_NETMASK			255.255.255.0
-
-#define CONFIG_SYS_LOAD_ADDR		0x85000000
-#define CONFIG_SYS_BOOTM_LEN		(32 << 20)
 
 #if defined(CONFIG_ARM64)
 /* ARM Trusted Firmware */
@@ -108,15 +57,7 @@
 	"third_image=u-boot.bin\0"
 #endif
 
-#define CONFIG_ROOTPATH			"/nfs/root/path"
-#define CONFIG_NFSBOOTCOMMAND						\
-	"setenv bootargs $bootargs root=/dev/nfs rw "			\
-	"nfsroot=$serverip:$rootpath "					\
-	"ip=$ipaddr:$serverip:$gatewayip:$netmask:$hostname:$netdev:off;" \
-		"run __nfsboot"
-
 #ifdef CONFIG_FIT
-#define CONFIG_BOOTFILE			"fitImage"
 #define KERNEL_ADDR_R_OFFSET		"0x05100000"
 #define LINUXBOOT_ENV_SETTINGS \
 	"tftpboot=tftpboot $kernel_addr_r $bootfile &&" \
@@ -124,11 +65,9 @@
 	"__nfsboot=run tftpboot\0"
 #else
 #ifdef CONFIG_ARM64
-#define CONFIG_BOOTFILE			"Image"
 #define LINUXBOOT_CMD			"booti"
 #define KERNEL_ADDR_R_OFFSET		"0x02080000"
 #else
-#define CONFIG_BOOTFILE			"zImage"
 #define LINUXBOOT_CMD			"bootz"
 #define KERNEL_ADDR_R_OFFSET		"0x00208000"
 #endif
@@ -146,7 +85,7 @@
 		"run boot_common\0"
 #endif
 
-#define	CONFIG_EXTRA_ENV_SETTINGS				\
+#define	CFG_EXTRA_ENV_SETTINGS				\
 	"fdt_addr_r_offset=0x05100000\0" \
 	"kernel_addr_r_offset=" KERNEL_ADDR_R_OFFSET "\0" \
 	"ramdisk_addr_r_offset=0x06000000\0" \
@@ -216,23 +155,11 @@
 	LINUXBOOT_ENV_SETTINGS \
 	BOOTENV
 
-#define CONFIG_SYS_BOOTMAPSZ			0x20000000
-
-#define CONFIG_SYS_INIT_SP_ADDR		(CONFIG_SYS_TEXT_BASE)
+#define CFG_SYS_BOOTMAPSZ			0x20000000
 
 /* only for SPL */
-#define CONFIG_SPL_STACK		(0x00200000)
 
-#define CONFIG_SYS_NAND_U_BOOT_OFFS		0x20000
+/* subtract sizeof(struct legacy_img_hdr) */
+#define CFG_SYS_UBOOT_BASE			(0x130000 - 0x40)
 
-/* subtract sizeof(struct image_header) */
-#define CONFIG_SYS_UBOOT_BASE			(0x130000 - 0x40)
-
-#define CONFIG_SPL_TARGET			"u-boot-with-spl.bin"
-#define CONFIG_SPL_MAX_FOOTPRINT		0x10000
-#define CONFIG_SPL_MAX_SIZE			0x10000
-#define CONFIG_SPL_BSS_MAX_SIZE			0x2000
-
-#define CONFIG_SPL_PAD_TO			0x20000
-
-#endif /* __CONFIG_UNIPHIER_COMMON_H__ */
+#endif /* __CONFIG_UNIPHIER_H__ */

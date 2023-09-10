@@ -33,6 +33,9 @@ static int uniphier_pinctrl_get_pins_count(struct udevice *dev)
 	const struct uniphier_pinctrl_pin *pins = priv->socdata->pins;
 	int pins_count = priv->socdata->pins_count;
 
+	if (WARN_ON(!pins_count))
+		return 0; /* no table of pins */
+
 	/*
 	 * We do not list all pins in the pin table to save memory footprint.
 	 * Report the max pin number + 1 to fake the framework.
@@ -422,7 +425,7 @@ int uniphier_pinctrl_probe(struct udevice *dev,
 	struct uniphier_pinctrl_priv *priv = dev_get_priv(dev);
 	fdt_addr_t addr;
 
-	addr = devfdt_get_addr(dev->parent);
+	addr = dev_read_addr(dev->parent);
 	if (addr == FDT_ADDR_T_NONE)
 		return -EINVAL;
 

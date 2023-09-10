@@ -16,6 +16,7 @@
 #include <dm/uclass-internal.h>
 #include <dm/util.h>
 #include <hexdump.h>
+#include <test/test.h>
 #include <test/ut.h>
 
 static const int busnum;
@@ -26,9 +27,6 @@ static int dm_test_i2c_find(struct unit_test_state *uts)
 {
 	struct udevice *bus, *dev;
 	const int no_chip = 0x10;
-
-	ut_asserteq(-ENODEV, uclass_find_device_by_seq(UCLASS_I2C, busnum,
-						       false, &bus));
 
 	/*
 	 * The post_bind() method will bind devices to chip selects. Check
@@ -41,7 +39,7 @@ static int dm_test_i2c_find(struct unit_test_state *uts)
 
 	return 0;
 }
-DM_TEST(dm_test_i2c_find, DM_TESTF_SCAN_PDATA | DM_TESTF_SCAN_FDT);
+DM_TEST(dm_test_i2c_find, UT_TESTF_SCAN_PDATA | UT_TESTF_SCAN_FDT);
 
 static int dm_test_i2c_read_write(struct unit_test_state *uts)
 {
@@ -58,7 +56,7 @@ static int dm_test_i2c_read_write(struct unit_test_state *uts)
 
 	return 0;
 }
-DM_TEST(dm_test_i2c_read_write, DM_TESTF_SCAN_PDATA | DM_TESTF_SCAN_FDT);
+DM_TEST(dm_test_i2c_read_write, UT_TESTF_SCAN_PDATA | UT_TESTF_SCAN_FDT);
 
 static int dm_test_i2c_speed(struct unit_test_state *uts)
 {
@@ -80,7 +78,7 @@ static int dm_test_i2c_speed(struct unit_test_state *uts)
 
 	return 0;
 }
-DM_TEST(dm_test_i2c_speed, DM_TESTF_SCAN_PDATA | DM_TESTF_SCAN_FDT);
+DM_TEST(dm_test_i2c_speed, UT_TESTF_SCAN_PDATA | UT_TESTF_SCAN_FDT);
 
 static int dm_test_i2c_offset_len(struct unit_test_state *uts)
 {
@@ -97,7 +95,7 @@ static int dm_test_i2c_offset_len(struct unit_test_state *uts)
 
 	return 0;
 }
-DM_TEST(dm_test_i2c_offset_len, DM_TESTF_SCAN_PDATA | DM_TESTF_SCAN_FDT);
+DM_TEST(dm_test_i2c_offset_len, UT_TESTF_SCAN_PDATA | UT_TESTF_SCAN_FDT);
 
 static int dm_test_i2c_probe_empty(struct unit_test_state *uts)
 {
@@ -112,7 +110,7 @@ static int dm_test_i2c_probe_empty(struct unit_test_state *uts)
 
 	return 0;
 }
-DM_TEST(dm_test_i2c_probe_empty, DM_TESTF_SCAN_PDATA | DM_TESTF_SCAN_FDT);
+DM_TEST(dm_test_i2c_probe_empty, UT_TESTF_SCAN_PDATA | UT_TESTF_SCAN_FDT);
 
 static int dm_test_i2c_bytewise(struct unit_test_state *uts)
 {
@@ -126,7 +124,7 @@ static int dm_test_i2c_bytewise(struct unit_test_state *uts)
 	ut_asserteq_mem(buf, "\0\0\0\0\0", sizeof(buf));
 
 	/* Tell the EEPROM to only read/write one register at a time */
-	ut_assertok(uclass_first_device(UCLASS_I2C_EMUL, &eeprom));
+	ut_assertok(uclass_first_device_err(UCLASS_I2C_EMUL, &eeprom));
 	ut_assertnonnull(eeprom);
 	sandbox_i2c_eeprom_set_test_mode(eeprom, SIE_TEST_MODE_SINGLE_BYTE);
 
@@ -167,7 +165,7 @@ static int dm_test_i2c_bytewise(struct unit_test_state *uts)
 
 	return 0;
 }
-DM_TEST(dm_test_i2c_bytewise, DM_TESTF_SCAN_PDATA | DM_TESTF_SCAN_FDT);
+DM_TEST(dm_test_i2c_bytewise, UT_TESTF_SCAN_PDATA | UT_TESTF_SCAN_FDT);
 
 static int dm_test_i2c_offset(struct unit_test_state *uts)
 {
@@ -179,7 +177,7 @@ static int dm_test_i2c_offset(struct unit_test_state *uts)
 
 	/* Do a transfer so we can find the emulator */
 	ut_assertok(dm_i2c_read(dev, 0, buf, 5));
-	ut_assertok(uclass_first_device(UCLASS_I2C_EMUL, &eeprom));
+	ut_assertok(uclass_first_device_err(UCLASS_I2C_EMUL, &eeprom));
 
 	/* Offset length 0 */
 	sandbox_i2c_eeprom_set_offset_len(eeprom, 0);
@@ -240,7 +238,7 @@ static int dm_test_i2c_offset(struct unit_test_state *uts)
 
 	return 0;
 }
-DM_TEST(dm_test_i2c_offset, DM_TESTF_SCAN_PDATA | DM_TESTF_SCAN_FDT);
+DM_TEST(dm_test_i2c_offset, UT_TESTF_SCAN_PDATA | UT_TESTF_SCAN_FDT);
 
 static int dm_test_i2c_addr_offset(struct unit_test_state *uts)
 {
@@ -252,7 +250,7 @@ static int dm_test_i2c_addr_offset(struct unit_test_state *uts)
 
 	/* Do a transfer so we can find the emulator */
 	ut_assertok(dm_i2c_read(dev, 0, buf, 5));
-	ut_assertok(uclass_first_device(UCLASS_I2C_EMUL, &eeprom));
+	ut_assertok(uclass_first_device_err(UCLASS_I2C_EMUL, &eeprom));
 
 	/* Offset length 0 */
 	sandbox_i2c_eeprom_set_offset_len(eeprom, 0);
@@ -305,4 +303,33 @@ static int dm_test_i2c_addr_offset(struct unit_test_state *uts)
 	return 0;
 }
 
-DM_TEST(dm_test_i2c_addr_offset, DM_TESTF_SCAN_PDATA | DM_TESTF_SCAN_FDT);
+DM_TEST(dm_test_i2c_addr_offset, UT_TESTF_SCAN_PDATA | UT_TESTF_SCAN_FDT);
+
+static int dm_test_i2c_reg_clrset(struct unit_test_state *uts)
+{
+	struct udevice *eeprom;
+	struct udevice *dev;
+	u8 buf[5];
+
+	ut_assertok(i2c_get_chip_for_busnum(busnum, chip, 1, &dev));
+
+	/* Do a transfer so we can find the emulator */
+	ut_assertok(dm_i2c_read(dev, 0, buf, 5));
+	ut_assertok(uclass_first_device_err(UCLASS_I2C_EMUL, &eeprom));
+
+	/* Dummy data for the test */
+	ut_assertok(dm_i2c_write(dev, 0, "\xff\x00\xff\x00\x10", 5));
+
+	/* Do some clrset tests */
+	ut_assertok(dm_i2c_reg_clrset(dev, 0, 0xff, 0x10));
+	ut_assertok(dm_i2c_reg_clrset(dev, 1, 0x00, 0x11));
+	ut_assertok(dm_i2c_reg_clrset(dev, 2, 0xed, 0x00));
+	ut_assertok(dm_i2c_reg_clrset(dev, 3, 0xff, 0x13));
+	ut_assertok(dm_i2c_reg_clrset(dev, 4, 0x00, 0x14));
+
+	ut_assertok(dm_i2c_read(dev, 0, buf, 5));
+	ut_asserteq_mem("\x10\x11\x12\x13\x14", buf, sizeof(buf));
+
+	return 0;
+}
+DM_TEST(dm_test_i2c_reg_clrset, UT_TESTF_SCAN_PDATA | UT_TESTF_SCAN_FDT);

@@ -8,41 +8,10 @@
 #include <cpu_func.h>
 #include <dm.h>
 #include <asm/barrier.h>
+#include <asm/global_data.h>
 #include <asm/smp.h>
 
 DECLARE_GLOBAL_DATA_PTR;
-
-/**
- * riscv_send_ipi() - Send inter-processor interrupt (IPI)
- *
- * Platform code must provide this function.
- *
- * @hart: Hart ID of receiving hart
- * @return 0 if OK, -ve on error
- */
-extern int riscv_send_ipi(int hart);
-
-/**
- * riscv_clear_ipi() - Clear inter-processor interrupt (IPI)
- *
- * Platform code must provide this function.
- *
- * @hart: Hart ID of hart to be cleared
- * @return 0 if OK, -ve on error
- */
-extern int riscv_clear_ipi(int hart);
-
-/**
- * riscv_get_ipi() - Get status of inter-processor interrupt (IPI)
- *
- * Platform code must provide this function.
- *
- * @hart: Hart ID of hart to be checked
- * @pending: Pointer to variable with result of the check,
- *           1 if IPI is pending, 0 otherwise
- * @return 0 if OK, -ve on error
- */
-extern int riscv_get_ipi(int hart, int *pending);
 
 static int send_ipi_many(struct ipi_data *ipi, int wait)
 {
@@ -58,7 +27,7 @@ static int send_ipi_many(struct ipi_data *ipi, int wait)
 
 	ofnode_for_each_subnode(node, cpus) {
 		/* skip if hart is marked as not available in the device tree */
-		if (!ofnode_is_available(node))
+		if (!ofnode_is_enabled(node))
 			continue;
 
 		/* read hart ID of CPU */
@@ -76,15 +45,25 @@ static int send_ipi_many(struct ipi_data *ipi, int wait)
 			continue;
 		}
 
-#ifndef CONFIG_XIP
+#if !CONFIG_IS_ENABLED(XIP)
+#ifdef CONFIG_AVAILABLE_HARTS
 		/* skip if hart is not available */
 		if (!(gd->arch.available_harts & (1 << reg)))
 			continue;
+#endif
 #endif
 
 		gd->arch.ipi[reg].addr = ipi->addr;
 		gd->arch.ipi[reg].arg0 = ipi->arg0;
 		gd->arch.ipi[reg].arg1 = ipi->arg1;
+
+		/*
+		 * Ensure valid only becomes set when the IPI parameters are
+		 * set. An IPI may already be pending on other harts, so we
+		 * need a way to signal that the IPI device has been
+		 * initialized, and that it is ok to call the function.
+		 */
+		__smp_store_release(&gd->arch.ipi[reg].valid, 1);
 
 		ret = riscv_send_ipi(reg);
 		if (ret) {
@@ -113,7 +92,13 @@ void handle_ipi(ulong hart)
 	if (hart >= CONFIG_NR_CPUS)
 		return;
 
-	__smp_mb();
+	/*
+	 * If valid is not set, then U-Boot has not requested the IPI. The
+	 * IPI device may not be initialized, so all we can do is wait for
+	 * U-Boot to initialize it and send an IPI
+	 */
+	if (!__smp_load_acquire(&gd->arch.ipi[hart].valid))
+		return;
 
 	smp_function = (void (*)(ulong, ulong, ulong))gd->arch.ipi[hart].addr;
 	invalidate_icache_all();
@@ -124,7 +109,7 @@ void handle_ipi(ulong hart)
 	 */
 	ret = riscv_clear_ipi(hart);
 	if (ret) {
-		pr_err("Cannot clear IPI of hart %ld\n", hart);
+		pr_err("Cannot clear IPI of hart %ld (error %d)\n", hart, ret);
 		return;
 	}
 
@@ -133,14 +118,11 @@ void handle_ipi(ulong hart)
 
 int smp_call_function(ulong addr, ulong arg0, ulong arg1, int wait)
 {
-	int ret = 0;
-	struct ipi_data ipi;
+	struct ipi_data ipi = {
+		.addr = addr,
+		.arg0 = arg0,
+		.arg1 = arg1,
+	};
 
-	ipi.addr = addr;
-	ipi.arg0 = arg0;
-	ipi.arg1 = arg1;
-
-	ret = send_ipi_many(&ipi, wait);
-
-	return ret;
+	return send_ipi_many(&ipi, wait);
 }

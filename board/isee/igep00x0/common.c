@@ -2,6 +2,7 @@
 
 #include <common.h>
 #include <twl4030.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
 #include <asm/omap_mmc.h>
 #include <asm/arch/mux.h>
@@ -56,7 +57,7 @@ int board_init(void)
 }
 
 #if defined(CONFIG_MMC)
-int board_mmc_init(bd_t *bis)
+int board_mmc_init(struct bd_info *bis)
 {
 	return omap_mmc_init(0, 0, 0, -1, -1);
 }

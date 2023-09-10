@@ -13,6 +13,7 @@
 #include <wait_bit.h>
 #include <watchdog.h>
 #include <asm/cache.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
 #include <asm/arch/fpga_manager.h>
 #include <asm/arch/misc.h>
@@ -670,7 +671,7 @@ static int of_sdram_firewall_setup(const void *blob)
 
 int ddr_calibration_sequence(void)
 {
-	WATCHDOG_RESET();
+	schedule();
 
 	/* Check to see if SDRAM cal was success */
 	if (sdram_startup()) {
@@ -680,7 +681,7 @@ int ddr_calibration_sequence(void)
 
 	puts("DDRCAL: Success\n");
 
-	WATCHDOG_RESET();
+	schedule();
 
 	/* initialize the MMR register */
 	sdram_mmr_init();

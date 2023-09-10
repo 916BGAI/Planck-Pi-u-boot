@@ -197,8 +197,8 @@ static int mvmdio_write(struct udevice *dev, int addr, int devad, int reg,
  */
 static int mvmdio_bind(struct udevice *dev)
 {
-	if (ofnode_valid(dev->node))
-		device_set_name(dev, ofnode_get_name(dev->node));
+	if (ofnode_valid(dev_ofnode(dev)))
+		device_set_name(dev, ofnode_get_name(dev_ofnode(dev)));
 
 	return 0;
 }
@@ -208,7 +208,7 @@ static int mvmdio_probe(struct udevice *dev)
 {
 	struct mvmdio_priv *priv = dev_get_priv(dev);
 
-	priv->mdio_base = (void *)dev_read_addr(dev);
+	priv->mdio_base = dev_read_addr_ptr(dev);
 	priv->type = (enum mvmdio_bus_type)dev_get_driver_data(dev);
 
 	return 0;
@@ -232,6 +232,5 @@ U_BOOT_DRIVER(mvmdio) = {
 	.bind			= mvmdio_bind,
 	.probe			= mvmdio_probe,
 	.ops			= &mvmdio_ops,
-	.priv_auto_alloc_size	= sizeof(struct mvmdio_priv),
+	.priv_auto	= sizeof(struct mvmdio_priv),
 };
-

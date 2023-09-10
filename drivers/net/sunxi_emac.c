@@ -17,7 +17,6 @@
 #include <net.h>
 #include <asm/io.h>
 #include <asm/arch/clock.h>
-#include <asm/arch/gpio.h>
 
 /* EMAC register  */
 struct emac_regs {
@@ -165,9 +164,7 @@ struct emac_eth_dev {
 	struct mii_dev *bus;
 	struct phy_device *phydev;
 	int link_printed;
-#ifdef CONFIG_DM_ETH
 	uchar rx_buf[EMAC_RX_BUFSIZE];
-#endif
 };
 
 struct emac_rxhdr {
@@ -251,10 +248,10 @@ static int emac_mdio_write(struct mii_dev *bus, int addr, int devad, int reg,
 
 static int sunxi_emac_init_phy(struct emac_eth_dev *priv, void *dev)
 {
-	int ret, mask = 0xffffffff;
+	int ret, mask = -1;
 
 #ifdef CONFIG_PHY_ADDR
-	mask = 1 << CONFIG_PHY_ADDR;
+	mask = CONFIG_PHY_ADDR;
 #endif
 
 	priv->bus = mdio_alloc();
@@ -272,12 +269,10 @@ static int sunxi_emac_init_phy(struct emac_eth_dev *priv, void *dev)
 	if (ret)
 		return ret;
 
-	priv->phydev = phy_find_by_mask(priv->bus, mask,
-					PHY_INTERFACE_MODE_MII);
+	priv->phydev = phy_connect(priv->bus, mask, dev, PHY_INTERFACE_MODE_MII);
 	if (!priv->phydev)
 		return -ENODEV;
 
-	phy_connect_dev(priv->phydev, dev);
 	phy_config(priv->phydev);
 
 	return 0;
@@ -505,19 +500,16 @@ static int _sunxi_emac_eth_send(struct emac_eth_dev *priv, void *packet,
 	return 0;
 }
 
-static int sunxi_emac_board_setup(struct emac_eth_dev *priv)
+static int sunxi_emac_board_setup(struct udevice *dev,
+				  struct emac_eth_dev *priv)
 {
 	struct sunxi_sramc_regs *sram =
 		(struct sunxi_sramc_regs *)SUNXI_SRAMC_BASE;
 	struct emac_regs *regs = priv->regs;
-	int pin, ret;
+	int ret;
 
 	/* Map SRAM to EMAC */
 	setbits_le32(&sram->ctrl1, 0x5 << 2);
-
-	/* Configure pin mux settings for MII Ethernet */
-	for (pin = SUNXI_GPA(0); pin <= SUNXI_GPA(17); pin++)
-		sunxi_gpio_set_cfgpin(pin, SUNXI_GPA_EMAC);
 
 	/* Set up clock gating */
 	ret = clk_enable(&priv->clk);
@@ -534,9 +526,9 @@ static int sunxi_emac_board_setup(struct emac_eth_dev *priv)
 
 static int sunxi_emac_eth_start(struct udevice *dev)
 {
-	struct eth_pdata *pdata = dev_get_platdata(dev);
+	struct eth_pdata *pdata = dev_get_plat(dev);
 
-	return _sunxi_emac_eth_init(dev->priv, pdata->enetaddr);
+	return _sunxi_emac_eth_init(dev_get_priv(dev), pdata->enetaddr);
 }
 
 static int sunxi_emac_eth_send(struct udevice *dev, void *packet, int length)
@@ -564,7 +556,7 @@ static void sunxi_emac_eth_stop(struct udevice *dev)
 
 static int sunxi_emac_eth_probe(struct udevice *dev)
 {
-	struct eth_pdata *pdata = dev_get_platdata(dev);
+	struct eth_pdata *pdata = dev_get_plat(dev);
 	struct emac_eth_dev *priv = dev_get_priv(dev);
 	int ret;
 
@@ -576,7 +568,7 @@ static int sunxi_emac_eth_probe(struct udevice *dev)
 		return ret;
 	}
 
-	ret = sunxi_emac_board_setup(priv);
+	ret = sunxi_emac_board_setup(dev, priv);
 	if (ret)
 		return ret;
 
@@ -590,11 +582,11 @@ static const struct eth_ops sunxi_emac_eth_ops = {
 	.stop			= sunxi_emac_eth_stop,
 };
 
-static int sunxi_emac_eth_ofdata_to_platdata(struct udevice *dev)
+static int sunxi_emac_eth_of_to_plat(struct udevice *dev)
 {
-	struct eth_pdata *pdata = dev_get_platdata(dev);
+	struct eth_pdata *pdata = dev_get_plat(dev);
 
-	pdata->iobase = devfdt_get_addr(dev);
+	pdata->iobase = dev_read_addr(dev);
 
 	return 0;
 }
@@ -608,9 +600,9 @@ U_BOOT_DRIVER(eth_sunxi_emac) = {
 	.name	= "eth_sunxi_emac",
 	.id	= UCLASS_ETH,
 	.of_match = sunxi_emac_eth_ids,
-	.ofdata_to_platdata = sunxi_emac_eth_ofdata_to_platdata,
+	.of_to_plat = sunxi_emac_eth_of_to_plat,
 	.probe	= sunxi_emac_eth_probe,
 	.ops	= &sunxi_emac_eth_ops,
-	.priv_auto_alloc_size = sizeof(struct emac_eth_dev),
-	.platdata_auto_alloc_size = sizeof(struct eth_pdata),
+	.priv_auto	= sizeof(struct emac_eth_dev),
+	.plat_auto	= sizeof(struct eth_pdata),
 };

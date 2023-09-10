@@ -5,7 +5,7 @@
 #include <dm/test.h>
 #include <test/ut.h>
 
-static int dm_test_ofnode_get_property_by_prop(struct unit_test_state *uts)
+static int dm_test_ofprop_get_property(struct unit_test_state *uts)
 {
 	ofnode node;
 	struct ofprop prop;
@@ -14,10 +14,10 @@ static int dm_test_ofnode_get_property_by_prop(struct unit_test_state *uts)
 	int res, len, count = 0;
 
 	node = ofnode_path("/cros-ec/flash");
-	for (res = ofnode_get_first_property(node, &prop);
+	for (res = ofnode_first_property(node, &prop);
 	     !res;
-	     res = ofnode_get_next_property(&prop)) {
-		value = ofnode_get_property_by_prop(&prop, &propname, &len);
+	     res = ofnode_next_property(&prop)) {
+		value = ofprop_get_property(&prop, &propname, &len);
 		ut_assertnonnull(value);
 		switch (count) {
 		case 0:
@@ -33,7 +33,7 @@ static int dm_test_ofnode_get_property_by_prop(struct unit_test_state *uts)
 			ut_asserteq(4, len);
 			break;
 		case 3:
-			/* only for platdata */
+			/* only for plat */
 			ut_asserteq_str("name", propname);
 			ut_asserteq(6, len);
 			ut_asserteq_str("flash", value);
@@ -46,5 +46,4 @@ static int dm_test_ofnode_get_property_by_prop(struct unit_test_state *uts)
 
 	return 0;
 }
-DM_TEST(dm_test_ofnode_get_property_by_prop,
-	DM_TESTF_SCAN_PDATA | DM_TESTF_SCAN_FDT);
+DM_TEST(dm_test_ofprop_get_property, UT_TESTF_SCAN_PDATA | UT_TESTF_SCAN_FDT);

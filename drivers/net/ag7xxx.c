@@ -16,6 +16,7 @@
 #include <malloc.h>
 #include <net.h>
 #include <asm/cache.h>
+#include <asm/global_data.h>
 #include <linux/bitops.h>
 #include <linux/compiler.h>
 #include <linux/delay.h>
@@ -142,11 +143,11 @@ enum ag7xxx_model {
 #define AG7XXX_ETH_CFG_MII_GE0			BIT(1)
 #define AG7XXX_ETH_CFG_RGMII_GE0		BIT(0)
 
-#define CONFIG_TX_DESCR_NUM	8
-#define CONFIG_RX_DESCR_NUM	8
-#define CONFIG_ETH_BUFSIZE	2048
-#define TX_TOTAL_BUFSIZE	(CONFIG_ETH_BUFSIZE * CONFIG_TX_DESCR_NUM)
-#define RX_TOTAL_BUFSIZE	(CONFIG_ETH_BUFSIZE * CONFIG_RX_DESCR_NUM)
+#define CFG_TX_DESCR_NUM	8
+#define CFG_RX_DESCR_NUM	8
+#define CFG_ETH_BUFSIZE	2048
+#define TX_TOTAL_BUFSIZE	(CFG_ETH_BUFSIZE * CFG_TX_DESCR_NUM)
+#define RX_TOTAL_BUFSIZE	(CFG_ETH_BUFSIZE * CFG_RX_DESCR_NUM)
 
 /* DMA descriptor. */
 struct ag7xxx_dma_desc {
@@ -161,8 +162,8 @@ struct ag7xxx_dma_desc {
 };
 
 struct ar7xxx_eth_priv {
-	struct ag7xxx_dma_desc	tx_mac_descrtable[CONFIG_TX_DESCR_NUM];
-	struct ag7xxx_dma_desc	rx_mac_descrtable[CONFIG_RX_DESCR_NUM];
+	struct ag7xxx_dma_desc	tx_mac_descrtable[CFG_TX_DESCR_NUM];
+	struct ag7xxx_dma_desc	rx_mac_descrtable[CFG_RX_DESCR_NUM];
 	char		txbuffs[TX_TOTAL_BUFSIZE] __aligned(ARCH_DMA_MINALIGN);
 	char		rxbuffs[RX_TOTAL_BUFSIZE] __aligned(ARCH_DMA_MINALIGN);
 
@@ -407,11 +408,11 @@ static void ag7xxx_dma_clean_tx(struct udevice *dev)
 	u32 start, end;
 	int i;
 
-	for (i = 0; i < CONFIG_TX_DESCR_NUM; i++) {
+	for (i = 0; i < CFG_TX_DESCR_NUM; i++) {
 		curr = &priv->tx_mac_descrtable[i];
-		next = &priv->tx_mac_descrtable[(i + 1) % CONFIG_TX_DESCR_NUM];
+		next = &priv->tx_mac_descrtable[(i + 1) % CFG_TX_DESCR_NUM];
 
-		curr->data_addr = virt_to_phys(&priv->txbuffs[i * CONFIG_ETH_BUFSIZE]);
+		curr->data_addr = virt_to_phys(&priv->txbuffs[i * CFG_ETH_BUFSIZE]);
 		curr->config = AG7XXX_DMADESC_IS_EMPTY;
 		curr->next_desc = virt_to_phys(next);
 	}
@@ -431,11 +432,11 @@ static void ag7xxx_dma_clean_rx(struct udevice *dev)
 	u32 start, end;
 	int i;
 
-	for (i = 0; i < CONFIG_RX_DESCR_NUM; i++) {
+	for (i = 0; i < CFG_RX_DESCR_NUM; i++) {
 		curr = &priv->rx_mac_descrtable[i];
-		next = &priv->rx_mac_descrtable[(i + 1) % CONFIG_RX_DESCR_NUM];
+		next = &priv->rx_mac_descrtable[(i + 1) % CFG_RX_DESCR_NUM];
 
-		curr->data_addr = virt_to_phys(&priv->rxbuffs[i * CONFIG_ETH_BUFSIZE]);
+		curr->data_addr = virt_to_phys(&priv->rxbuffs[i * CFG_ETH_BUFSIZE]);
 		curr->config = AG7XXX_DMADESC_IS_EMPTY;
 		curr->next_desc = virt_to_phys(next);
 	}
@@ -491,7 +492,7 @@ static int ag7xxx_eth_send(struct udevice *dev, void *packet, int length)
 	       priv->regs + AG7XXX_ETH_DMA_TX_CTRL);
 
 	/* Switch to next TX descriptor. */
-	priv->tx_currdescnum = (priv->tx_currdescnum + 1) % CONFIG_TX_DESCR_NUM;
+	priv->tx_currdescnum = (priv->tx_currdescnum + 1) % CFG_TX_DESCR_NUM;
 
 	return 0;
 }
@@ -542,7 +543,7 @@ static int ag7xxx_eth_free_pkt(struct udevice *dev, uchar *packet,
 	flush_dcache_range(start, end);
 
 	/* Switch to next RX descriptor. */
-	priv->rx_currdescnum = (priv->rx_currdescnum + 1) % CONFIG_RX_DESCR_NUM;
+	priv->rx_currdescnum = (priv->rx_currdescnum + 1) % CFG_RX_DESCR_NUM;
 
 	return 0;
 }
@@ -588,7 +589,7 @@ static void ag7xxx_eth_stop(struct udevice *dev)
  */
 static int ag7xxx_eth_write_hwaddr(struct udevice *dev)
 {
-	struct eth_pdata *pdata = dev_get_platdata(dev);
+	struct eth_pdata *pdata = dev_get_plat(dev);
 	struct ar7xxx_eth_priv *priv = dev_get_priv(dev);
 	unsigned char *mac = pdata->enetaddr;
 	u32 macid_lo, macid_hi;
@@ -1197,7 +1198,7 @@ static int ag7xxx_get_phy_iface_offset(struct udevice *dev)
 
 static int ag7xxx_eth_probe(struct udevice *dev)
 {
-	struct eth_pdata *pdata = dev_get_platdata(dev);
+	struct eth_pdata *pdata = dev_get_plat(dev);
 	struct ar7xxx_eth_priv *priv = dev_get_priv(dev);
 	void __iomem *iobase, *phyiobase;
 	int ret, phyreg;
@@ -1250,13 +1251,12 @@ static const struct eth_ops ag7xxx_eth_ops = {
 	.write_hwaddr		= ag7xxx_eth_write_hwaddr,
 };
 
-static int ag7xxx_eth_ofdata_to_platdata(struct udevice *dev)
+static int ag7xxx_eth_of_to_plat(struct udevice *dev)
 {
-	struct eth_pdata *pdata = dev_get_platdata(dev);
-	const char *phy_mode;
+	struct eth_pdata *pdata = dev_get_plat(dev);
 	int ret;
 
-	pdata->iobase = devfdt_get_addr(dev);
+	pdata->iobase = dev_read_addr(dev);
 	pdata->phy_interface = -1;
 
 	/* Decoding of convoluted PHY wiring on Atheros MIPS. */
@@ -1264,13 +1264,9 @@ static int ag7xxx_eth_ofdata_to_platdata(struct udevice *dev)
 	if (ret <= 0)
 		return ret;
 
-	phy_mode = fdt_getprop(gd->fdt_blob, ret, "phy-mode", NULL);
-	if (phy_mode)
-		pdata->phy_interface = phy_get_interface_by_name(phy_mode);
-	if (pdata->phy_interface == -1) {
-		debug("%s: Invalid PHY interface '%s'\n", __func__, phy_mode);
+	pdata->phy_interface = dev_read_phy_mode(dev);
+	if (pdata->phy_interface == PHY_INTERFACE_MODE_NA)
 		return -EINVAL;
-	}
 
 	return 0;
 }
@@ -1287,11 +1283,11 @@ U_BOOT_DRIVER(eth_ag7xxx) = {
 	.name		= "eth_ag7xxx",
 	.id		= UCLASS_ETH,
 	.of_match	= ag7xxx_eth_ids,
-	.ofdata_to_platdata = ag7xxx_eth_ofdata_to_platdata,
+	.of_to_plat = ag7xxx_eth_of_to_plat,
 	.probe		= ag7xxx_eth_probe,
 	.remove		= ag7xxx_eth_remove,
 	.ops		= &ag7xxx_eth_ops,
-	.priv_auto_alloc_size = sizeof(struct ar7xxx_eth_priv),
-	.platdata_auto_alloc_size = sizeof(struct eth_pdata),
+	.priv_auto	= sizeof(struct ar7xxx_eth_priv),
+	.plat_auto	= sizeof(struct eth_pdata),
 	.flags		= DM_FLAG_ALLOC_PRIV_DMA,
 };

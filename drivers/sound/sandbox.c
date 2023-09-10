@@ -29,6 +29,7 @@ struct sandbox_i2s_priv {
 struct sandbox_sound_priv {
 	int setup_called;	/* Incremented when setup() method is called */
 	bool active;		/* TX data is being sent */
+	int count;		/* Use to count the provided audio data */
 	int sum;		/* Use to sum the provided audio data */
 	bool allow_beep;	/* true to allow the start_beep() interface */
 	int frequency_hz;	/* Beep frequency if active, else 0 */
@@ -66,6 +67,13 @@ int sandbox_get_sound_active(struct udevice *dev)
 	struct sandbox_sound_priv *priv = dev_get_priv(dev);
 
 	return priv->active;
+}
+
+int sandbox_get_sound_count(struct udevice *dev)
+{
+	struct sandbox_sound_priv *priv = dev_get_priv(dev);
+
+	return priv->count;
 }
 
 int sandbox_get_sound_sum(struct udevice *dev)
@@ -168,6 +176,7 @@ static int sandbox_sound_play(struct udevice *dev, void *data, uint data_size)
 
 	for (i = 0; i < data_size; i++)
 		priv->sum += ((uint8_t *)data)[i];
+	priv->count += data_size;
 
 	return i2s_tx_data(uc_priv->i2s, data, data_size);
 }
@@ -223,7 +232,7 @@ U_BOOT_DRIVER(sandbox_codec) = {
 	.id		= UCLASS_AUDIO_CODEC,
 	.of_match	= sandbox_codec_ids,
 	.ops		= &sandbox_codec_ops,
-	.priv_auto_alloc_size	= sizeof(struct sandbox_codec_priv),
+	.priv_auto	= sizeof(struct sandbox_codec_priv),
 };
 
 static const struct i2s_ops sandbox_i2s_ops = {
@@ -241,7 +250,7 @@ U_BOOT_DRIVER(sandbox_i2s) = {
 	.of_match	= sandbox_i2s_ids,
 	.ops		= &sandbox_i2s_ops,
 	.probe		= sandbox_i2s_probe,
-	.priv_auto_alloc_size	= sizeof(struct sandbox_i2s_priv),
+	.priv_auto	= sizeof(struct sandbox_i2s_priv),
 };
 
 static const struct sound_ops sandbox_sound_ops = {
@@ -262,6 +271,6 @@ U_BOOT_DRIVER(sandbox_sound) = {
 	.id		= UCLASS_SOUND,
 	.of_match	= sandbox_sound_ids,
 	.ops		= &sandbox_sound_ops,
-	.priv_auto_alloc_size	= sizeof(struct sandbox_sound_priv),
+	.priv_auto	= sizeof(struct sandbox_sound_priv),
 	.probe		= sandbox_sound_probe,
 };

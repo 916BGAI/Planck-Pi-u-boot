@@ -8,8 +8,8 @@ choice
 	prompt "Target select"
 	optional
 
-config TARGET_AX25_AE350
-	bool "Support ax25-ae350"
+config TARGET_AE350
+	bool "Support ae350"
 
 config TARGET_MICROCHIP_ICICLE
 	bool "Support Microchip PolarFire-SoC Icicle Board"
@@ -17,14 +17,31 @@ config TARGET_MICROCHIP_ICICLE
 config TARGET_QEMU_VIRT
 	bool "Support QEMU Virt Board"
 
-config TARGET_SIFIVE_FU540
-	bool "Support SiFive FU540 Board"
+config TARGET_SIFIVE_UNLEASHED
+	bool "Support SiFive Unleashed Board"
+
+config TARGET_SIFIVE_UNMATCHED
+	bool "Support SiFive Unmatched Board"
+	select SYS_CACHE_SHIFT_6
+
+config TARGET_STARFIVE_VISIONFIVE2
+	bool "Support StarFive VisionFive2 Board"
+
+config TARGET_TH1520_LPI4A
+	bool "Support Sipeed's TH1520 Lichee PI 4A Board"
+	select SYS_CACHE_SHIFT_6
+
+config TARGET_SIPEED_MAIX
+	bool "Support Sipeed Maix Board"
+	select SYS_CACHE_SHIFT_6
+
+config TARGET_OPENPITON_RISCV64
+	bool "Support RISC-V cores on OpenPiton SoC"
 
 endchoice
 
 config SYS_ICACHE_OFF
 	bool "Do not enable icache"
-	default n
 	help
 	  Do not enable instruction cache in U-Boot.
 
@@ -37,7 +54,6 @@ config SPL_SYS_ICACHE_OFF
 
 config SYS_DCACHE_OFF
 	bool "Do not enable dcache"
-	default n
 	help
 	  Do not enable data cache in U-Boot.
 
@@ -48,16 +64,31 @@ config SPL_SYS_DCACHE_OFF
 	help
 	  Do not enable data cache in SPL.
 
+config SPL_ZERO_MEM_BEFORE_USE
+	bool "Zero memory before use"
+	depends on SPL
+	default n
+	help
+	  Zero stack/GD/malloc area in SPL before using them, this is needed for
+	  Sifive core devices that uses L2 cache to store SPL.
+
 # board-specific options below
-source "board/AndesTech/ax25-ae350/Kconfig"
+source "board/AndesTech/ae350/Kconfig"
 source "board/emulation/qemu-riscv/Kconfig"
 source "board/microchip/mpfs_icicle/Kconfig"
-source "board/sifive/fu540/Kconfig"
+source "board/sifive/unleashed/Kconfig"
+source "board/sifive/unmatched/Kconfig"
+source "board/thead/th1520_lpi4a/Kconfig"
+source "board/openpiton/riscv64/Kconfig"
+source "board/sipeed/maix/Kconfig"
+source "board/starfive/visionfive2/Kconfig"
 
 # platform-specific options below
-source "arch/riscv/cpu/ax25/Kconfig"
+source "arch/riscv/cpu/andesv5/Kconfig"
 source "arch/riscv/cpu/fu540/Kconfig"
+source "arch/riscv/cpu/fu740/Kconfig"
 source "arch/riscv/cpu/generic/Kconfig"
+source "arch/riscv/cpu/jh7110/Kconfig"
 
 # architecture-specific options below
 
@@ -139,6 +170,21 @@ config RISCV_ISA_C
 	  when building U-Boot, which results in compressed instructions in the
 	  U-Boot binary.
 
+config RISCV_ISA_F
+	bool "Standard extension for Single-Precision Floating Point"
+	default y
+	help
+	  Adds "F" to the ISA string passed to the compiler.
+
+config RISCV_ISA_D
+	bool "Standard extension for Double-Precision Floating Point"
+	depends on RISCV_ISA_F
+	default y
+	help
+	  Adds "D" to the ISA string passed to the compiler and changes the
+	  riscv32 ABI from ilp32 to ilp32d and the riscv64 ABI from lp64 to
+	  lp64d.
+
 config RISCV_ISA_A
 	def_bool y
 
@@ -148,18 +194,34 @@ config 32BIT
 config 64BIT
 	bool
 
-config SIFIVE_CLINT
+config DMA_ADDR_T_64BIT
 	bool
-	depends on RISCV_MMODE || SPL_RISCV_MMODE
+	default y if 64BIT
+
+config RISCV_ACLINT
+	bool
+	depends on RISCV_MMODE
 	select REGMAP
 	select SYSCON
-	select SPL_REGMAP if SPL
-	select SPL_SYSCON if SPL
 	help
-	  The SiFive CLINT block holds memory-mapped control and status registers
+	  The RISC-V ACLINT block holds memory-mapped control and status registers
 	  associated with software and timer interrupts.
 
-config ANDES_PLIC
+config SPL_RISCV_ACLINT
+	bool
+	depends on SPL_RISCV_MMODE
+	select SPL_REGMAP
+	select SPL_SYSCON
+	help
+	  The RISC-V ACLINT block holds memory-mapped control and status registers
+	  associated with software and timer interrupts.
+
+config SIFIVE_CACHE
+	bool
+	help
+	  This enables the operations to configure SiFive cache
+
+config ANDES_PLICSW
 	bool
 	depends on RISCV_MMODE || SPL_RISCV_MMODE
 	select REGMAP
@@ -167,30 +229,8 @@ config ANDES_PLIC
 	select SPL_REGMAP if SPL
 	select SPL_SYSCON if SPL
 	help
-	  The Andes PLIC block holds memory-mapped claim and pending registers
-	  associated with software interrupt.
-
-config ANDES_PLMT
-	bool
-	depends on RISCV_MMODE || SPL_RISCV_MMODE
-	select REGMAP
-	select SYSCON
-	select SPL_REGMAP if SPL
-	select SPL_SYSCON if SPL
-	help
-	  The Andes PLMT block holds memory-mapped mtime register
-	  associated with timer tick.
-
-config RISCV_RDTIME
-	bool
-	default y if RISCV_SMODE || SPL_RISCV_SMODE
-	help
-	  The provides the riscv_get_time() API that is implemented using the
-	  standard rdtime instruction. This is the case for S-mode U-Boot, and
-	  is useful for processors that support rdtime in M-mode too.
-
-config SYS_MALLOC_F_LEN
-	default 0x1000
+	  The Andes PLICSW block holds memory-mapped claim and pending
+	  registers associated with software interrupt.
 
 config SMP
 	bool "Symmetric Multi-Processing"
@@ -239,16 +279,16 @@ config SBI_V01
 	  deprecated in future once legacy M-mode software are no longer in use.
 
 config SBI_V02
-	bool "SBI v0.2 support"
+	bool "SBI v0.2 or later support"
 	depends on SBI
 	help
-	  This config allows kernel to use SBI v0.2 APIs. SBI v0.2 is more
-	  scalable and extendable to handle future needs for RISC-V supervisor
-	  interfaces. For example, with SBI v0.2 HSM extension, only a single
-	  hart need to boot and enter operating system. The booting hart can
-	  bring up secondary harts one by one afterwards.
+	  The SBI specification introduced the concept of extensions in version
+	  v0.2. With this configuration option U-Boot can detect and use SBI
+	  extensions. With the HSM extension introduced in SBI 0.2, only a
+	  single hart needs to boot and enter the operating system. The booting
+	  hart can bring up secondary harts one by one afterwards.
 
-	  Choose this option if OpenSBI v0.7 or above release is used together
+	  Choose this option if OpenSBI release v0.7 or above is used together
 	  with U-Boot.
 
 endchoice
@@ -266,14 +306,120 @@ config XIP
 	  from a NOR flash memory without copying the code to ram.
 	  Say yes here if U-Boot boots from flash directly.
 
+config SPL_XIP
+	bool "Enable XIP mode for SPL"
+	help
+	  If SPL starts in read-only memory (XIP for example) then we shouldn't
+	  rely on lock variables (for example hart_lottery and available_harts_lock),
+	  this affects only SPL, other stages should proceed as non-XIP.
+
+config AVAILABLE_HARTS
+	bool "Send IPI by available harts"
+	default y
+	help
+	  By default, IPI sending mechanism will depend on available_harts.
+	  If disable this, it will send IPI by CPUs node numbers of device tree.
+
 config SHOW_REGS
 	bool "Show registers on unhandled exception"
+
+config RISCV_PRIV_1_9
+	bool "Use version 1.9 of the RISC-V priviledged specification"
+	help
+	  Older versions of the RISC-V priviledged specification had
+	  separate counter enable CSRs for each privilege mode. Writing
+	  to the unified mcounteren CSR on a processor implementing the
+	  old specification will result in an illegal instruction
+	  exception. In addition to counter CSR changes, the way virtual
+	  memory is configured was also changed.
 
 config STACK_SIZE_SHIFT
 	int
 	default 14
 
 config OF_BOARD_FIXUP
-	default y if OF_SEPARATE
+	default y if OF_SEPARATE && RISCV_SMODE
+
+menu "Use assembly optimized implementation of memory routines"
+
+config USE_ARCH_MEMCPY
+	bool "Use an assembly optimized implementation of memcpy"
+	default y
+	help
+	  Enable the generation of an optimized version of memcpy.
+	  Such an implementation may be faster under some conditions
+	  but may increase the binary size.
+
+config SPL_USE_ARCH_MEMCPY
+	bool "Use an assembly optimized implementation of memcpy for SPL"
+	default y if USE_ARCH_MEMCPY
+	depends on SPL
+	help
+	  Enable the generation of an optimized version of memcpy.
+	  Such an implementation may be faster under some conditions
+	  but may increase the binary size.
+
+config TPL_USE_ARCH_MEMCPY
+	bool "Use an assembly optimized implementation of memcpy for TPL"
+	default y if USE_ARCH_MEMCPY
+	depends on TPL
+	help
+	  Enable the generation of an optimized version of memcpy.
+	  Such an implementation may be faster under some conditions
+	  but may increase the binary size.
+
+config USE_ARCH_MEMMOVE
+	bool "Use an assembly optimized implementation of memmove"
+	default y
+	help
+	  Enable the generation of an optimized version of memmove.
+	  Such an implementation may be faster under some conditions
+	  but may increase the binary size.
+
+config SPL_USE_ARCH_MEMMOVE
+	bool "Use an assembly optimized implementation of memmove for SPL"
+	default y if USE_ARCH_MEMCPY
+	depends on SPL
+	help
+	  Enable the generation of an optimized version of memmove.
+	  Such an implementation may be faster under some conditions
+	  but may increase the binary size.
+
+config TPL_USE_ARCH_MEMMOVE
+	bool "Use an assembly optimized implementation of memmove for TPL"
+	default y if USE_ARCH_MEMCPY
+	depends on TPL
+	help
+	  Enable the generation of an optimized version of memmove.
+	  Such an implementation may be faster under some conditions
+	  but may increase the binary size.
+
+config USE_ARCH_MEMSET
+	bool "Use an assembly optimized implementation of memset"
+	default y
+	help
+	  Enable the generation of an optimized version of memset.
+	  Such an implementation may be faster under some conditions
+	  but may increase the binary size.
+
+config SPL_USE_ARCH_MEMSET
+	bool "Use an assembly optimized implementation of memset for SPL"
+	default y if USE_ARCH_MEMSET
+	depends on SPL
+	help
+	  Enable the generation of an optimized version of memset.
+	  Such an implementation may be faster under some conditions
+	  but may increase the binary size.
+
+config TPL_USE_ARCH_MEMSET
+	bool "Use an assembly optimized implementation of memset for TPL"
+	default y if USE_ARCH_MEMSET
+	depends on TPL
+	help
+	  Enable the generation of an optimized version of memset.
+	  Such an implementation may be faster under some conditions
+	  but may increase the binary size.
+
+endmenu
 
 endmenu

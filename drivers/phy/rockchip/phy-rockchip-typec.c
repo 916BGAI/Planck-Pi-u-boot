@@ -11,6 +11,7 @@
 #include <common.h>
 #include <clk.h>
 #include <dm.h>
+#include <asm/global_data.h>
 #include <dm/device_compat.h>
 #include <dm/lists.h>
 #include <generic-phy.h>
@@ -448,7 +449,7 @@ static void rockchip_tcphy_rx_usb3_cfg_lane(struct rockchip_tcphy *priv,
 	writel(0xfb, priv->reg_base + XCVR_DIAG_BIDI_CTRL(lane));
 }
 
-static int rockchip_tcphy_init(struct rockchip_tcphy *priv)
+static int rockchip_tcphy_init(struct phy *phy, struct rockchip_tcphy *priv)
 {
 	const struct rockchip_usb3phy_port_cfg *cfg = priv->port_cfgs;
 	u32 val;
@@ -559,9 +560,9 @@ static int rockchip_usb3_phy_power_on(struct phy *phy)
 		return 0;
 
 	if (priv->mode == MODE_DISCONNECT) {
-		ret = rockchip_tcphy_init(priv);
+		ret = rockchip_tcphy_init(phy, priv);
 		if (ret) {
-			dev_err(dev, "failed to init tcphy (ret=%d)\n", ret);
+			dev_err(phy->dev, "failed to init tcphy (ret=%d)\n", ret);
 			return ret;
 		}
 	}
@@ -673,9 +674,9 @@ static int rockchip_tcphy_probe(struct udevice *dev)
 	unsigned int reg;
 	int index, ret;
 
-	priv->reg_base = (void __iomem *)dev_read_addr(dev);
-	if (IS_ERR(priv->reg_base))
-		return PTR_ERR(priv->reg_base);
+	priv->reg_base = dev_read_addr_ptr(dev);
+	if (!priv->reg_base)
+		return -EINVAL;
 
 	ret = dev_read_u32_index(dev, "reg", 1, &reg);
 	if (ret) {
@@ -792,5 +793,5 @@ U_BOOT_DRIVER(rockchip_typec_phy) = {
 	.of_match = rockchip_typec_phy_ids,
 	.probe = rockchip_tcphy_probe,
 	.bind = rockchip_tcphy_bind,
-	.priv_auto_alloc_size = sizeof(struct rockchip_tcphy),
+	.priv_auto	= sizeof(struct rockchip_tcphy),
 };

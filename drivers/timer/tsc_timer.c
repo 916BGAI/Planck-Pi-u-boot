@@ -14,6 +14,7 @@
 #include <time.h>
 #include <timer.h>
 #include <asm/cpu.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
 #include <asm/i8254.h>
 #include <asm/ibmpc.h>
@@ -372,7 +373,7 @@ void __udelay(unsigned long usec)
 	u64 now = get_ticks();
 	u64 stop;
 
-	stop = now + usec * get_tbclk_mhz();
+	stop = now + (u64)usec * get_tbclk_mhz();
 
 	while ((int64_t)(stop - get_ticks()) > 0)
 #if defined(CONFIG_QEMU) && defined(CONFIG_SMP)
@@ -386,13 +387,11 @@ void __udelay(unsigned long usec)
 #endif
 }
 
-static int tsc_timer_get_count(struct udevice *dev, u64 *count)
+static u64 tsc_timer_get_count(struct udevice *dev)
 {
 	u64 now_tick = rdtsc();
 
-	*count = now_tick - gd->arch.tsc_base;
-
-	return 0;
+	return now_tick - gd->arch.tsc_base;
 }
 
 static void tsc_timer_ensure_setup(bool early)
@@ -405,6 +404,15 @@ static void tsc_timer_ensure_setup(bool early)
 	if (!gd->arch.clock_rate) {
 		unsigned long fast_calibrate;
 
+		/**
+		 * There is no obvious way to obtain this information from EFI
+		 * boot services. This value was measured on a Framework Laptop
+		 * which has a 12th Gen Intel Core
+		 */
+		if (IS_ENABLED(CONFIG_EFI_APP)) {
+			fast_calibrate = 2750;
+			goto done;
+		}
 		fast_calibrate = native_calibrate_tsc();
 		if (fast_calibrate)
 			goto done;
@@ -426,12 +434,13 @@ static void tsc_timer_ensure_setup(bool early)
 			goto done;
 
 		if (early)
-			fast_calibrate = CONFIG_X86_TSC_TIMER_EARLY_FREQ;
+			gd->arch.clock_rate = CONFIG_X86_TSC_TIMER_FREQ;
 		else
 			return;
 
 done:
-		gd->arch.clock_rate = fast_calibrate * 1000000;
+		if (!gd->arch.clock_rate)
+			gd->arch.clock_rate = fast_calibrate * 1000000;
 	}
 	gd->arch.tsc_inited = true;
 }
@@ -479,15 +488,17 @@ static const struct timer_ops tsc_timer_ops = {
 	.get_count = tsc_timer_get_count,
 };
 
+#if CONFIG_IS_ENABLED(OF_REAL)
 static const struct udevice_id tsc_timer_ids[] = {
 	{ .compatible = "x86,tsc-timer", },
 	{ }
 };
+#endif
 
-U_BOOT_DRIVER(tsc_timer) = {
-	.name	= "tsc_timer",
+U_BOOT_DRIVER(x86_tsc_timer) = {
+	.name	= "x86_tsc_timer",
 	.id	= UCLASS_TIMER,
-	.of_match = tsc_timer_ids,
+	.of_match = of_match_ptr(tsc_timer_ids),
 	.probe = tsc_timer_probe,
 	.ops	= &tsc_timer_ops,
 };

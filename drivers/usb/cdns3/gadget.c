@@ -82,6 +82,9 @@ static int __cdns3_gadget_ep_queue(struct usb_ep *ep,
 				   struct usb_request *request,
 				   gfp_t gfp_flags);
 
+static void cdns3_gadget_udc_set_speed(struct usb_gadget *gadget,
+				       enum usb_device_speed speed);
+
 /**
  * cdns3_set_register_bit - set bit in given register.
  * @ptr: address of device controller register to be read and changed
@@ -1659,7 +1662,7 @@ cdns3_endpoint *cdns3_find_available_ep(struct cdns3_device *priv_dev,
 		/* ep name pattern likes epXin or epXout */
 		char c[2] = {ep->name[2], '\0'};
 
-		num = simple_strtoul(c, NULL, 10);
+		num = dectoul(c, NULL);
 
 		priv_ep = ep_to_cdns3_ep(ep);
 		if (cdns3_ep_dir_is_correct(desc, priv_ep)) {
@@ -2341,6 +2344,7 @@ static int cdns3_gadget_udc_start(struct usb_gadget *gadget,
 
 	spin_lock_irqsave(&priv_dev->lock, flags);
 	priv_dev->gadget_driver = driver;
+	cdns3_gadget_udc_set_speed(gadget, gadget->max_speed);
 	cdns3_gadget_config(priv_dev);
 	spin_unlock_irqrestore(&priv_dev->lock, flags);
 	return 0;
@@ -2399,8 +2403,7 @@ static void cdns3_gadget_udc_set_speed(struct usb_gadget *gadget,
 	case USB_SPEED_SUPER:
 		break;
 	default:
-		dev_err(cdns->dev, "invalid speed parameter %d\n",
-			speed);
+		dev_err(priv_dev->dev, "invalid speed parameter %d\n", speed);
 	}
 
 	priv_dev->gadget.speed = speed;

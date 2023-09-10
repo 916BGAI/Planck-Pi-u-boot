@@ -64,8 +64,7 @@ static int mtk_snfi_adjust_op_size(struct spi_slave *slave,
 	 * or the output+input data must not exceed the GPRAM size.
 	 */
 
-	nbytes = sizeof(op->cmd.opcode) + op->addr.nbytes +
-		op->dummy.nbytes;
+	nbytes = op->cmd.nbytes + op->addr.nbytes + op->dummy.nbytes;
 
 	if (nbytes + op->data.nbytes <= SNFI_GPRAM_SIZE)
 		return 0;
@@ -154,7 +153,7 @@ static void mtk_snfi_copy_to_gpram(struct mtk_snfi_priv *priv,
 
 	/*
 	 * The output data will always be copied to the beginning of
-	 * the GPRAM. Uses word write for better performace.
+	 * the GPRAM. Uses word write for better performance.
 	 *
 	 * Trailing bytes in the last word are not cared.
 	 */
@@ -181,7 +180,7 @@ static void mtk_snfi_copy_from_gpram(struct mtk_snfi_priv *priv, u8 *cache,
 
 	/*
 	 * Read aligned data from GPRAM to buffer first.
-	 * Uses word read for better performace.
+	 * Uses word read for better performance.
 	 */
 	i = 0;
 	while (pos < end) {
@@ -203,7 +202,7 @@ static int mtk_snfi_exec_op(struct spi_slave *slave,
 	int addr_sh;
 	int ret;
 
-	WATCHDOG_RESET();
+	schedule();
 
 	ret = mtk_snfi_mac_reset(priv);
 	if (ret)
@@ -253,7 +252,7 @@ static int mtk_snfi_spi_probe(struct udevice *bus)
 	struct mtk_snfi_priv *priv = dev_get_priv(bus);
 	int ret;
 
-	priv->base = (void __iomem *)devfdt_get_addr(bus);
+	priv->base = dev_read_addr_ptr(bus);
 	if (!priv->base)
 		return -EINVAL;
 
@@ -313,6 +312,6 @@ U_BOOT_DRIVER(mtk_snfi_spi) = {
 	.id			= UCLASS_SPI,
 	.of_match		= mtk_snfi_spi_ids,
 	.ops			= &mtk_snfi_spi_ops,
-	.priv_auto_alloc_size	= sizeof(struct mtk_snfi_priv),
+	.priv_auto	= sizeof(struct mtk_snfi_priv),
 	.probe			= mtk_snfi_spi_probe,
 };

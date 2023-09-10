@@ -37,11 +37,15 @@ Bootloaders
 ===============
 
 For DA850 an SPL (secondary program loader, see doc/README.SPL) is provided
-to load U-Boot directly from SPI flash. The SPL takes care of the low level
+to load U-Boot from SPI flash, MMC or NAND. The SPL takes care of the low level
 initialization.
 
-The SPL is built as u-boot.ais for all DA850 defconfigs. The resulting
-image file can be programmed to the SPI flash of the DA850 EVM/LCDK.
+The SPL is built as u-boot.ais for all DA850 defconfigs except those booting
+from NOR flash. The resulting image file can be programmed to the SPI flash
+of the DA850 EVM/LCDK.
+
+Devices that support booting from NOR utilize execute in place (XIP) and do
+not require SPL to perform low level initialization.
 
 Environment Variables
 =====================
@@ -54,7 +58,7 @@ Please make sure you understand the restrictions placed on this clock in the
 device specific datasheet before setting up this variable. This information is
 passed to the Linux kernel using the ATAG_REVISION atag.
 
-If "maxcpuclk" is not defined, the configuration CONFIG_DA850_EVM_MAX_CPU_CLK
+If "maxcpuclk" is not defined, the configuration CFG_DA850_EVM_MAX_CPU_CLK
 is used to obtain this information.
 
 Links
@@ -71,7 +75,7 @@ http://www.ti.com/tool/TMDXLCDK138
 Davinci special defines
 =======================
 
-CONFIG_SYS_DV_NOR_BOOT_CFG:	AM18xx based boards, booting in NOR Boot mode
+CFG_SYS_DV_NOR_BOOT_CFG:	AM18xx based boards, booting in NOR Boot mode
 				need a "NOR Boot Configuration Word" stored
 				in the NOR Flash. This define adds this.
 				More Info about this, see:

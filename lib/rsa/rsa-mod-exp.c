@@ -25,6 +25,14 @@
 #define get_unaligned_be32(a) fdt32_to_cpu(*(uint32_t *)a)
 #define put_unaligned_be32(a, b) (*(uint32_t *)(b) = cpu_to_fdt32(a))
 
+static inline uint64_t fdt64_to_cpup(const void *p)
+{
+	fdt64_t w;
+
+	memcpy(&w, p, sizeof(w));
+	return fdt64_to_cpu(w);
+}
+
 /* Default public exponent for backward compatibility */
 #define RSA_DEFAULT_PUBEXP	65537
 
@@ -51,7 +59,7 @@ static void subtract_modulus(const struct rsa_public_key *key, uint32_t num[])
  *
  * @key:	Key containing modulus to check
  * @num:	Number to check against modulus, as little endian word array
- * @return 0 if num < modulus, 1 if num >= modulus
+ * Return: 0 if num < modulus, 1 if num >= modulus
  */
 static int greater_equal_modulus(const struct rsa_public_key *key,
 				 uint32_t num[])
@@ -263,8 +271,7 @@ int rsa_mod_exp_sw(const uint8_t *sig, uint32_t sig_len,
 	if (!prop->public_exponent)
 		key.exponent = RSA_DEFAULT_PUBEXP;
 	else
-		rsa_convert_big_endian((uint32_t *)&key.exponent,
-				       prop->public_exponent, 2);
+		key.exponent = fdt64_to_cpup(prop->public_exponent);
 
 	if (!key.len || !prop->modulus || !prop->rr) {
 		debug("%s: Missing RSA key info", __func__);
@@ -308,13 +315,13 @@ int rsa_mod_exp_sw(const uint8_t *sig, uint32_t sig_len,
  *
  * @keyptr:	RSA key
  * @inout:	Big-endian word array containing value and result
- * @return 0 on successful calculation, otherwise failure error code
+ * Return: 0 on successful calculation, otherwise failure error code
  *
  * FIXME: Use pow_mod() instead of zynq_pow_mod()
  *        pow_mod calculation required for zynq is bit different from
  *        pw_mod above here, hence defined zynq specific routine.
  */
-int zynq_pow_mod(u32 *keyptr, u32 *inout)
+int zynq_pow_mod(uint32_t *keyptr, uint32_t *inout)
 {
 	u32 *result, *ptr;
 	uint i;

@@ -125,7 +125,15 @@ u32 addrmap[][8] = {
 struct dram_info dram_info;
 
 struct px30_sdram_params sdram_configs[] = {
+#if defined(CONFIG_RAM_ROCKCHIP_DDR4)
+#include	"sdram-px30-ddr4-detect-333.inc"
+#elif defined(CONFIG_RAM_ROCKCHIP_LPDDR2)
+#include	"sdram-px30-lpddr2-detect-333.inc"
+#elif defined(CONFIG_RAM_ROCKCHIP_LPDDR3)
+#include	"sdram-px30-lpddr3-detect-333.inc"
+#else
 #include	"sdram-px30-ddr3-detect-333.inc"
+#endif
 };
 
 struct ddr_phy_skew skew = {
@@ -703,7 +711,7 @@ int sdram_init(void)
 	if (ret)
 		goto error;
 
-	sdram_print_ddr_info(&sdram_params->ch.cap_info, &sdram_params->base);
+	sdram_print_ddr_info(&sdram_params->ch.cap_info, &sdram_params->base, 0);
 
 	printascii("out\n");
 	return ret;
@@ -718,7 +726,7 @@ static int px30_dmc_probe(struct udevice *dev)
 
 	priv->pmugrf = syscon_get_first_range(ROCKCHIP_SYSCON_PMUGRF);
 	debug("%s: grf=%p\n", __func__, priv->pmugrf);
-	priv->info.base = CONFIG_SYS_SDRAM_BASE;
+	priv->info.base = CFG_SYS_SDRAM_BASE;
 	priv->info.size =
 		rockchip_sdram_size((phys_addr_t)&priv->pmugrf->os_reg[2]);
 
@@ -749,6 +757,6 @@ U_BOOT_DRIVER(dmc_px30) = {
 	.of_match = px30_dmc_ids,
 	.ops = &px30_dmc_ops,
 	.probe = px30_dmc_probe,
-	.priv_auto_alloc_size = sizeof(struct dram_info),
+	.priv_auto	= sizeof(struct dram_info),
 };
 #endif /* CONFIG_TPL_BUILD */

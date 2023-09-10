@@ -9,6 +9,7 @@
 #include <asm/arch/imx-regs.h>
 #include <asm/arch/mx7-pins.h>
 #include <asm/arch/sys_proto.h>
+#include <asm/global_data.h>
 #include <asm/gpio.h>
 #include <asm/mach-imx/iomux-v3.h>
 #include <asm/io.h>
@@ -291,6 +292,7 @@ int power_init_board(void)
 int board_late_init(void)
 {
 	struct wdog_regs *wdog = (struct wdog_regs *)WDOG1_BASE_ADDR;
+	unsigned char eth1addr[6];
 
 	imx_iomux_v3_setup_multiple_pads(wdog_pads, ARRAY_SIZE(wdog_pads));
 
@@ -301,6 +303,11 @@ int board_late_init(void)
 	 * since we use PMIC_PWRON to reset the board.
 	 */
 	clrsetbits_le16(&wdog->wcr, 0, 0x10);
+
+	/* Get the second MAC address */
+	imx_get_mac_from_fuse(1, eth1addr);
+	if (!env_get("eth1addr") && is_valid_ethaddr(eth1addr))
+		eth_env_set_enetaddr("eth1addr", eth1addr);
 
 	return 0;
 }

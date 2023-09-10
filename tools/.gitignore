@@ -6,6 +6,7 @@
 /dumpimage
 /easylogo/easylogo
 /envcrc
+/fdt_add_pubkey
 /fdtgrep
 /file2include
 /fit_check_sign
@@ -20,6 +21,7 @@
 /kwboot
 /lib/
 /mips-relocs
+/mkeficapsule
 /mkenvimage
 /mkexynosspl
 /mkimage
@@ -27,10 +29,13 @@
 /mxsboot
 /ncb
 /prelink-riscv
+/printinitialenv
 /proftool
 /relocate-rela
 /spl_size_limit
 /sunxi-spl-image-builder
-/ubsha1
+/tools/generated/**/*.c
+/update_octeon_header
 /version.h
 /xway-swap-bytes
+/boot

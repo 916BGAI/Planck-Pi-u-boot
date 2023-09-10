@@ -8,6 +8,8 @@
  * drivers/gpu/drm/stm/dw_mipi_dsi-stm.c.
  */
 
+#define LOG_CATEGORY UCLASS_VIDEO_BRIDGE
+
 #include <common.h>
 #include <clk.h>
 #include <dm.h>
@@ -19,7 +21,6 @@
 #include <video.h>
 #include <video_bridge.h>
 #include <asm/io.h>
-#include <asm/arch/gpio.h>
 #include <dm/device-internal.h>
 #include <dm/device_compat.h>
 #include <dm/lists.h>
@@ -133,7 +134,7 @@ static enum dsi_color dsi_color_from_mipi(u32 fmt)
 	case MIPI_DSI_FMT_RGB565:
 		return DSI_RGB565_CONF1;
 	default:
-		pr_err("MIPI color invalid, so we use rgb888\n");
+		log_err("MIPI color invalid, so we use rgb888\n");
 	}
 	return DSI_RGB888;
 }
@@ -213,14 +214,14 @@ static int dsi_phy_init(void *priv_data)
 	u32 val;
 	int ret;
 
-	debug("Initialize DSI physical layer\n");
+	dev_dbg(dev, "Initialize DSI physical layer\n");
 
 	/* Enable the regulator */
 	dsi_set(dsi, DSI_WRPCR, WRPCR_REGEN | WRPCR_BGREN);
 	ret = readl_poll_timeout(dsi->base + DSI_WISR, val, val & WISR_RRS,
 				 TIMEOUT_US);
 	if (ret) {
-		debug("!TIMEOUT! waiting REGU\n");
+		dev_dbg(dev, "!TIMEOUT! waiting REGU\n");
 		return ret;
 	}
 
@@ -229,7 +230,7 @@ static int dsi_phy_init(void *priv_data)
 	ret = readl_poll_timeout(dsi->base + DSI_WISR, val, val & WISR_PLLLS,
 				 TIMEOUT_US);
 	if (ret) {
-		debug("!TIMEOUT! waiting PLL\n");
+		dev_dbg(dev, "!TIMEOUT! waiting PLL\n");
 		return ret;
 	}
 
@@ -242,8 +243,8 @@ static void dsi_phy_post_set_mode(void *priv_data, unsigned long mode_flags)
 	struct udevice *dev = device->dev;
 	struct stm32_dsi_priv *dsi = dev_get_priv(dev);
 
-	debug("Set mode %p enable %ld\n", dsi,
-	      mode_flags & MIPI_DSI_MODE_VIDEO);
+	dev_dbg(dev, "Set mode %p enable %ld\n", dsi,
+		mode_flags & MIPI_DSI_MODE_VIDEO);
 
 	if (!dsi)
 		return;
@@ -325,8 +326,8 @@ static int dsi_get_lane_mbps(void *priv_data, struct display_timing *timings,
 
 	*lane_mbps = pll_out_khz / 1000;
 
-	debug("pll_in %ukHz pll_out %ukHz lane_mbps %uMHz\n",
-	      pll_in_khz, pll_out_khz, *lane_mbps);
+	dev_dbg(dev, "pll_in %ukHz pll_out %ukHz lane_mbps %uMHz\n",
+		pll_in_khz, pll_out_khz, *lane_mbps);
 
 	return 0;
 }
@@ -345,13 +346,13 @@ static int stm32_dsi_attach(struct udevice *dev)
 	struct display_timing timings;
 	int ret;
 
-	ret = uclass_first_device(UCLASS_PANEL, &priv->panel);
+	ret = uclass_first_device_err(UCLASS_PANEL, &priv->panel);
 	if (ret) {
 		dev_err(dev, "panel device error %d\n", ret);
 		return ret;
 	}
 
-	mplat = dev_get_platdata(priv->panel);
+	mplat = dev_get_plat(priv->panel);
 	mplat->device = &priv->device;
 	device->lanes = mplat->lanes;
 	device->format = mplat->format;
@@ -359,8 +360,7 @@ static int stm32_dsi_attach(struct udevice *dev)
 
 	ret = panel_get_display_timing(priv->panel, &timings);
 	if (ret) {
-		ret = fdtdec_decode_display_timing(gd->fdt_blob,
-						   dev_of_offset(priv->panel),
+		ret = ofnode_decode_display_timing(dev_ofnode(priv->panel),
 						   0, &timings);
 		if (ret) {
 			dev_err(dev, "decode display timing error %d\n", ret);
@@ -427,25 +427,23 @@ static int stm32_dsi_probe(struct udevice *dev)
 
 	device->dev = dev;
 
-	priv->base = (void *)dev_read_addr(dev);
-	if ((fdt_addr_t)priv->base == FDT_ADDR_T_NONE) {
+	priv->base = dev_read_addr_ptr(dev);
+	if (!priv->base) {
 		dev_err(dev, "dsi dt register address error\n");
 		return -EINVAL;
 	}
 
-	if (IS_ENABLED(CONFIG_DM_REGULATOR)) {
-		ret =  device_get_supply_regulator(dev, "phy-dsi-supply",
-						   &priv->vdd_reg);
-		if (ret && ret != -ENOENT) {
-			dev_err(dev, "Warning: cannot get phy dsi supply\n");
-			return -ENODEV;
-		}
+	ret =  device_get_supply_regulator(dev, "phy-dsi-supply",
+					   &priv->vdd_reg);
+	if (ret && ret != -ENOENT) {
+		dev_err(dev, "Warning: cannot get phy dsi supply\n");
+		return -ENODEV;
+	}
 
-		if (ret != -ENOENT) {
-			ret = regulator_set_enable(priv->vdd_reg, true);
-			if (ret)
-				return ret;
-		}
+	if (ret != -ENOENT) {
+		ret = regulator_set_enable(priv->vdd_reg, true);
+		if (ret)
+			return ret;
 	}
 
 	ret = clk_get_by_name(device->dev, "pclk", &clk);
@@ -482,6 +480,9 @@ static int stm32_dsi_probe(struct udevice *dev)
 	if (priv->hw_version != HWVER_130 &&
 	    priv->hw_version != HWVER_131) {
 		dev_err(dev, "DSI version 0x%x not supported\n", priv->hw_version);
+		dev_dbg(dev, "remove and unbind all DSI child\n");
+		device_chld_remove(dev, NULL, DM_REMOVE_NORMAL);
+		device_chld_unbind(dev, NULL);
 		ret = -ENODEV;
 		goto err_clk;
 	}
@@ -490,8 +491,7 @@ static int stm32_dsi_probe(struct udevice *dev)
 err_clk:
 	clk_disable(&clk);
 err_reg:
-	if (IS_ENABLED(CONFIG_DM_REGULATOR))
-		regulator_set_enable(priv->vdd_reg, false);
+	regulator_set_enable(priv->vdd_reg, false);
 
 	return ret;
 }
@@ -513,5 +513,5 @@ U_BOOT_DRIVER(stm32_dsi) = {
 	.bind				= stm32_dsi_bind,
 	.probe				= stm32_dsi_probe,
 	.ops				= &stm32_dsi_ops,
-	.priv_auto_alloc_size		= sizeof(struct stm32_dsi_priv),
+	.priv_auto		= sizeof(struct stm32_dsi_priv),
 };

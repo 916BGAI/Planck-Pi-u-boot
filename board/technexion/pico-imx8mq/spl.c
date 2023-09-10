@@ -11,6 +11,7 @@
 #include <asm/arch/ddr.h>
 #include <asm/arch/imx8mq_pins.h>
 #include <asm/arch/sys_proto.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
 #include <asm/mach-imx/gpio.h>
 #include <asm/mach-imx/iomux-v3.h>
@@ -88,7 +89,7 @@ static void spl_dram_init(void)
 
 	printf("%s: LPDDR4 %d GiB\n", __func__, size);
 	ddr_init(dram_timing);
-	writel(size, M4_BOOTROM_BASE_ADDR);
+	writel(size, MCU_BOOTROM_BASE_ADDR);
 }
 
 #define USDHC2_CD_GPIO	IMX_GPIO_NR(2, 12)
@@ -146,7 +147,7 @@ static struct fsl_esdhc_cfg usdhc_cfg[2] = {
 	{USDHC2_BASE_ADDR, 0, 4},
 };
 
-int board_mmc_init(bd_t *bis)
+int board_mmc_init(struct bd_info *bis)
 {
 	int ret;
 	/*

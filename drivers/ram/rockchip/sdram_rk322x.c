@@ -11,6 +11,7 @@
 #include <ram.h>
 #include <regmap.h>
 #include <syscon.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
 #include <asm/arch-rockchip/clock.h>
 #include <asm/arch-rockchip/cru_rk322x.h>
@@ -635,12 +636,12 @@ static int dram_cap_detect(struct dram_info *dram,
 		writel(3, &axi_bus->ddrconf);
 	move_to_access_state(dram->chan[0].pctl);
 	for (col = 11; col >= 9; col--) {
-		writel(0, CONFIG_SYS_SDRAM_BASE);
-		addr = CONFIG_SYS_SDRAM_BASE +
+		writel(0, CFG_SYS_SDRAM_BASE);
+		addr = CFG_SYS_SDRAM_BASE +
 			(1 << (col + bw - 1));
 		writel(TEST_PATTEN, addr);
 		if ((readl(addr) == TEST_PATTEN) &&
-		    (readl(CONFIG_SYS_SDRAM_BASE) == 0))
+		    (readl(CFG_SYS_SDRAM_BASE) == 0))
 			break;
 	}
 	if (col == 8) {
@@ -655,11 +656,11 @@ static int dram_cap_detect(struct dram_info *dram,
 
 	/* Detect row*/
 	for (row = 16; row >= 12; row--) {
-		writel(0, CONFIG_SYS_SDRAM_BASE);
-		addr = CONFIG_SYS_SDRAM_BASE + (1u << (row + 11 + 3 - 1));
+		writel(0, CFG_SYS_SDRAM_BASE);
+		addr = CFG_SYS_SDRAM_BASE + (1u << (row + 11 + 3 - 1));
 		writel(TEST_PATTEN, addr);
 		if ((readl(addr) == TEST_PATTEN) &&
-		    (readl(CONFIG_SYS_SDRAM_BASE) == 0))
+		    (readl(CFG_SYS_SDRAM_BASE) == 0))
 			break;
 	}
 	if (row == 11) {
@@ -671,11 +672,11 @@ static int dram_cap_detect(struct dram_info *dram,
 		sdram_params->ch[0].cs0_row = row;
 	}
 	/* cs detect */
-	writel(0, CONFIG_SYS_SDRAM_BASE);
-	writel(TEST_PATTEN, CONFIG_SYS_SDRAM_BASE + (1u << 30));
-	writel(~TEST_PATTEN, CONFIG_SYS_SDRAM_BASE + (1u << 30) + 4);
-	if ((readl(CONFIG_SYS_SDRAM_BASE + (1u << 30)) == TEST_PATTEN) &&
-	    (readl(CONFIG_SYS_SDRAM_BASE) == 0))
+	writel(0, CFG_SYS_SDRAM_BASE);
+	writel(TEST_PATTEN, CFG_SYS_SDRAM_BASE + (1u << 30));
+	writel(~TEST_PATTEN, CFG_SYS_SDRAM_BASE + (1u << 30) + 4);
+	if ((readl(CFG_SYS_SDRAM_BASE + (1u << 30)) == TEST_PATTEN) &&
+	    (readl(CFG_SYS_SDRAM_BASE) == 0))
 		sdram_params->ch[0].rank = 2;
 	else
 		sdram_params->ch[0].rank = 1;
@@ -713,13 +714,15 @@ out:
 	return ret;
 }
 
-static int rk322x_dmc_ofdata_to_platdata(struct udevice *dev)
+static int rk322x_dmc_of_to_plat(struct udevice *dev)
 {
-#if !CONFIG_IS_ENABLED(OF_PLATDATA)
-	struct rk322x_sdram_params *params = dev_get_platdata(dev);
+	struct rk322x_sdram_params *params = dev_get_plat(dev);
 	const void *blob = gd->fdt_blob;
 	int node = dev_of_offset(dev);
 	int ret;
+
+	if (!CONFIG_IS_ENABLED(OF_REAL))
+		return 0;
 
 	params->num_channels = 1;
 
@@ -747,16 +750,15 @@ static int rk322x_dmc_ofdata_to_platdata(struct udevice *dev)
 	ret = regmap_init_mem(dev_ofnode(dev), &params->map);
 	if (ret)
 		return ret;
-#endif
 
 	return 0;
 }
 #endif /* CONFIG_TPL_BUILD */
 
 #if CONFIG_IS_ENABLED(OF_PLATDATA)
-static int conv_of_platdata(struct udevice *dev)
+static int conv_of_plat(struct udevice *dev)
 {
-	struct rk322x_sdram_params *plat = dev_get_platdata(dev);
+	struct rk322x_sdram_params *plat = dev_get_plat(dev);
 	struct dtd_rockchip_rk322x_dmc *of_plat = &plat->of_plat;
 	int ret;
 
@@ -767,9 +769,8 @@ static int conv_of_platdata(struct udevice *dev)
 	memcpy(&plat->base, of_plat->rockchip_sdram_params, sizeof(plat->base));
 
 	plat->num_channels = 1;
-	ret = regmap_init_mem_platdata(dev, of_plat->reg,
-				       ARRAY_SIZE(of_plat->reg) / 2,
-				       &plat->map);
+	ret = regmap_init_mem_plat(dev, of_plat->reg, sizeof(of_plat->reg[0]),
+				   ARRAY_SIZE(of_plat->reg) / 2, &plat->map);
 	if (ret)
 		return ret;
 
@@ -780,7 +781,7 @@ static int conv_of_platdata(struct udevice *dev)
 static int rk322x_dmc_probe(struct udevice *dev)
 {
 #ifdef CONFIG_TPL_BUILD
-	struct rk322x_sdram_params *plat = dev_get_platdata(dev);
+	struct rk322x_sdram_params *plat = dev_get_plat(dev);
 	int ret;
 	struct udevice *dev_clk;
 #endif
@@ -789,7 +790,7 @@ static int rk322x_dmc_probe(struct udevice *dev)
 	priv->grf = syscon_get_first_range(ROCKCHIP_SYSCON_GRF);
 #ifdef CONFIG_TPL_BUILD
 #if CONFIG_IS_ENABLED(OF_PLATDATA)
-	ret = conv_of_platdata(dev);
+	ret = conv_of_plat(dev);
 	if (ret)
 		return ret;
 #endif
@@ -812,7 +813,7 @@ static int rk322x_dmc_probe(struct udevice *dev)
 	if (ret)
 		return ret;
 #else
-	priv->info.base = CONFIG_SYS_SDRAM_BASE;
+	priv->info.base = CFG_SYS_SDRAM_BASE;
 	priv->info.size = rockchip_sdram_size(
 			(phys_addr_t)&priv->grf->os_reg[2]);
 #endif
@@ -844,12 +845,11 @@ U_BOOT_DRIVER(dmc_rk322x) = {
 	.of_match = rk322x_dmc_ids,
 	.ops = &rk322x_dmc_ops,
 #ifdef CONFIG_TPL_BUILD
-	.ofdata_to_platdata = rk322x_dmc_ofdata_to_platdata,
+	.of_to_plat = rk322x_dmc_of_to_plat,
 #endif
 	.probe = rk322x_dmc_probe,
-	.priv_auto_alloc_size = sizeof(struct dram_info),
+	.priv_auto	= sizeof(struct dram_info),
 #ifdef CONFIG_TPL_BUILD
-	.platdata_auto_alloc_size = sizeof(struct rk322x_sdram_params),
+	.plat_auto	= sizeof(struct rk322x_sdram_params),
 #endif
 };
-

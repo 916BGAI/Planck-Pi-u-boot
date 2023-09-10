@@ -2,10 +2,11 @@
 /*
  * BTRFS filesystem implementation for U-Boot
  *
- * 2017 Marek Behun, CZ.NIC, marek.behun@nic.cz
+ * 2017 Marek Behún, CZ.NIC, kabel@kernel.org
  */
 
 #include "btrfs.h"
+#include <abuf.h>
 #include <log.h>
 #include <malloc.h>
 #include <linux/lzo.h>
@@ -115,7 +116,7 @@ static u32 decompress_zlib(const u8 *_cbuf, u32 clen, u8 *dbuf, u32 dlen)
 	while (stream.total_in < clen) {
 		stream.next_in = cbuf + stream.total_in;
 		stream.avail_in = min((u32) (clen - stream.total_in),
-				      (u32) btrfs_info.sb.sectorsize);
+					current_fs_info->sectorsize);
 
 		ret = inflate(&stream, Z_NO_FLUSH);
 		if (ret != Z_OK)
@@ -136,54 +137,12 @@ static u32 decompress_zlib(const u8 *_cbuf, u32 clen, u8 *dbuf, u32 dlen)
 
 static u32 decompress_zstd(const u8 *cbuf, u32 clen, u8 *dbuf, u32 dlen)
 {
-	ZSTD_DStream *dstream;
-	ZSTD_inBuffer in_buf;
-	ZSTD_outBuffer out_buf;
-	void *workspace;
-	size_t wsize;
-	u32 res = -1;
+	struct abuf in, out;
 
-	wsize = ZSTD_DStreamWorkspaceBound(ZSTD_BTRFS_MAX_INPUT);
-	workspace = malloc(wsize);
-	if (!workspace) {
-		debug("%s: cannot allocate workspace of size %zu\n", __func__,
-		      wsize);
-		return -1;
-	}
+	abuf_init_set(&in, (u8 *)cbuf, clen);
+	abuf_init_set(&out, dbuf, dlen);
 
-	dstream = ZSTD_initDStream(ZSTD_BTRFS_MAX_INPUT, workspace, wsize);
-	if (!dstream) {
-		printf("%s: ZSTD_initDStream failed\n", __func__);
-		goto err_free;
-	}
-
-	in_buf.src = cbuf;
-	in_buf.pos = 0;
-	in_buf.size = clen;
-
-	out_buf.dst = dbuf;
-	out_buf.pos = 0;
-	out_buf.size = dlen;
-
-	while (1) {
-		size_t ret;
-
-		ret = ZSTD_decompressStream(dstream, &out_buf, &in_buf);
-		if (ZSTD_isError(ret)) {
-			printf("%s: ZSTD_decompressStream error %d\n", __func__,
-			       ZSTD_getErrorCode(ret));
-			goto err_free;
-		}
-
-		if (in_buf.pos >= clen || !ret)
-			break;
-	}
-
-	res = out_buf.pos;
-
-err_free:
-	free(workspace);
-	return res;
+	return zstd_decompress(&in, &out);
 }
 
 u32 btrfs_decompress(u8 type, const char *c, u32 clen, char *d, u32 dlen)

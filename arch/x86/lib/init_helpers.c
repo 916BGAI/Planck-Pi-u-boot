@@ -6,6 +6,7 @@
 
 #include <common.h>
 #include <init.h>
+#include <asm/global_data.h>
 #include <linux/errno.h>
 #include <asm/mtrr.h>
 
@@ -17,6 +18,17 @@ int init_cache_f_r(void)
 		 IS_ENABLED(CONFIG_FSP_VERSION2);
 	int ret;
 
+	/*
+	 * Supported configurations:
+	 *
+	 * booting from slimbootloader - MTRRs are already set up
+	 * booting with FSPv1 - MTRRs are already set up
+	 * booting with FSPv2 - MTRRs must be set here
+	 * booting from coreboot - in this case there is no SPL, so we set up
+	 *	the MTRRs here
+	 * Note: if there is an SPL, then it has already set up MTRRs so we
+	 *	don't need to do that here
+	 */
 	do_mtrr &= !IS_ENABLED(CONFIG_FSP_VERSION1) &&
 		!IS_ENABLED(CONFIG_SYS_SLIMBOOTLOADER);
 
@@ -29,9 +41,6 @@ int init_cache_f_r(void)
 		if (ret && ret != -ENOSYS)
 			return ret;
 	}
-
-	if (!ll_boot_init())
-		return 0;
 
 	/* Initialise the CPU cache(s) */
 	return init_cache();

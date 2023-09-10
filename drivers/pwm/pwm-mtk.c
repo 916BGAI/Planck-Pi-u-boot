@@ -29,13 +29,23 @@
 
 #define NSEC_PER_SEC 1000000000L
 
-static const unsigned int mtk_pwm_reg_offset[] = {
+enum mtk_pwm_reg_ver {
+	PWM_REG_V1,
+	PWM_REG_V2,
+};
+
+static const unsigned int mtk_pwm_reg_offset_v1[] = {
 	0x0010, 0x0050, 0x0090, 0x00d0, 0x0110, 0x0150, 0x0190, 0x0220
+};
+
+static const unsigned int mtk_pwm_reg_offset_v2[] = {
+	0x0080, 0x00c0, 0x0100, 0x0140, 0x0180, 0x01c0, 0x0200, 0x0240
 };
 
 struct mtk_pwm_soc {
 	unsigned int num_pwms;
 	bool pwm45_fixup;
+	enum mtk_pwm_reg_ver reg_ver;
 };
 
 struct mtk_pwm_priv {
@@ -49,7 +59,16 @@ struct mtk_pwm_priv {
 static void mtk_pwm_w32(struct udevice *dev, uint channel, uint reg, uint val)
 {
 	struct mtk_pwm_priv *priv = dev_get_priv(dev);
-	u32 offset = mtk_pwm_reg_offset[channel];
+	u32 offset;
+
+	switch (priv->soc->reg_ver) {
+	case PWM_REG_V2:
+		offset = mtk_pwm_reg_offset_v2[channel];
+		break;
+
+	default:
+		offset = mtk_pwm_reg_offset_v1[channel];
+	}
 
 	writel(val, priv->base + offset + reg);
 }
@@ -130,7 +149,7 @@ static int mtk_pwm_probe(struct udevice *dev)
 	int i;
 
 	priv->soc = (struct mtk_pwm_soc *)dev_get_driver_data(dev);
-	priv->base = (void __iomem *)devfdt_get_addr(dev);
+	priv->base = dev_read_addr_ptr(dev);
 	if (!priv->base)
 		return -EINVAL;
 	ret = clk_get_by_name(dev, "top", &priv->top_clk);
@@ -159,22 +178,46 @@ static const struct pwm_ops mtk_pwm_ops = {
 static const struct mtk_pwm_soc mt7622_data = {
 	.num_pwms = 6,
 	.pwm45_fixup = false,
+	.reg_ver = PWM_REG_V1,
 };
 
 static const struct mtk_pwm_soc mt7623_data = {
 	.num_pwms = 5,
 	.pwm45_fixup = true,
+	.reg_ver = PWM_REG_V1,
 };
 
 static const struct mtk_pwm_soc mt7629_data = {
 	.num_pwms = 1,
 	.pwm45_fixup = false,
+	.reg_ver = PWM_REG_V1,
+};
+
+static const struct mtk_pwm_soc mt7981_data = {
+	.num_pwms = 2,
+	.pwm45_fixup = false,
+	.reg_ver = PWM_REG_V2,
+};
+
+static const struct mtk_pwm_soc mt7986_data = {
+	.num_pwms = 2,
+	.pwm45_fixup = false,
+	.reg_ver = PWM_REG_V1,
+};
+
+static const struct mtk_pwm_soc mt7988_data = {
+	.num_pwms = 8,
+	.pwm45_fixup = false,
+	.reg_ver = PWM_REG_V2,
 };
 
 static const struct udevice_id mtk_pwm_ids[] = {
 	{ .compatible = "mediatek,mt7622-pwm", .data = (ulong)&mt7622_data },
 	{ .compatible = "mediatek,mt7623-pwm", .data = (ulong)&mt7623_data },
 	{ .compatible = "mediatek,mt7629-pwm", .data = (ulong)&mt7629_data },
+	{ .compatible = "mediatek,mt7981-pwm", .data = (ulong)&mt7981_data },
+	{ .compatible = "mediatek,mt7986-pwm", .data = (ulong)&mt7986_data },
+	{ .compatible = "mediatek,mt7988-pwm", .data = (ulong)&mt7988_data },
 	{ }
 };
 
@@ -184,5 +227,5 @@ U_BOOT_DRIVER(mtk_pwm) = {
 	.of_match = mtk_pwm_ids,
 	.ops = &mtk_pwm_ops,
 	.probe = mtk_pwm_probe,
-	.priv_auto_alloc_size = sizeof(struct mtk_pwm_priv),
+	.priv_auto	= sizeof(struct mtk_pwm_priv),
 };

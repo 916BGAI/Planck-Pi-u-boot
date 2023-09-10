@@ -116,14 +116,17 @@ struct arch_global_data {
 	u32 high_table_ptr;
 	u32 high_table_limit;
 #endif
-#ifdef CONFIG_HAVE_ACPI_RESUME
 	int prev_sleep_state;		/* Previous sleep state ACPI_S0/1../5 */
 	ulong backup_mem;		/* Backup memory address for S3 */
-#endif
 #ifdef CONFIG_FSP_VERSION2
 	struct fsp_header *fsp_s_hdr;	/* Pointer to FSP-S header */
 #endif
-	ulong acpi_start;		/* Start address of ACPI tables */
+	void *itss_priv;		/* Private ITSS data pointer */
+	ulong coreboot_table;		/* Address of coreboot table */
+	ulong table_start;		/* Start address of x86 tables */
+	ulong table_end;		/* End address of x86 tables */
+	ulong table_start_high;		/* Start address of high x86 tables */
+	ulong table_end_high;		/* End address of high x86 tables */
 };
 
 #endif
@@ -138,7 +141,7 @@ struct arch_global_data {
 
 #define DECLARE_GLOBAL_DATA_PTR   extern struct global_data *global_data_ptr
 # else
-static inline __attribute__((no_instrument_function)) gd_t *get_fs_gd_ptr(void)
+static inline notrace gd_t *get_fs_gd_ptr(void)
 {
 	gd_t *gd_ptr;
 

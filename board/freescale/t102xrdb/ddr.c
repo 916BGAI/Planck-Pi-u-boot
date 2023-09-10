@@ -8,6 +8,7 @@
 #include <hwconfig.h>
 #include <init.h>
 #include <log.h>
+#include <asm/global_data.h>
 #include <asm/mmu.h>
 #include <fsl_ddr_sdram.h>
 #include <fsl_ddr_dimm_params.h>
@@ -221,7 +222,7 @@ int fsl_ddr_get_dimm_params(dimm_params_t *pdimm,
 #if defined(CONFIG_DEEP_SLEEP)
 void board_mem_sleep_setup(void)
 {
-	void __iomem *cpld_base = (void *)CONFIG_SYS_CPLD_BASE;
+	void __iomem *cpld_base = (void *)CFG_SYS_CPLD_BASE;
 
 	/* does not provide HW signals for power management */
 	clrbits_8(cpld_base + 0x17, 0x40);

@@ -13,16 +13,12 @@
 #include <log.h>
 #include <p2sb.h>
 #include <spl.h>
+#include <asm/p2sb.h>
 #include <asm/pci.h>
 #include <linux/bitops.h>
 
-struct p2sb_platdata {
-#if CONFIG_IS_ENABLED(OF_PLATDATA)
-	struct dtd_intel_p2sb dtplat;
-#endif
-	ulong mmio_base;
-	pci_dev_t bdf;
-};
+#define PCH_P2SB_E0		0xe0
+#define HIDE_BIT		BIT(0)
 
 /* PCI config space registers */
 #define HPTC_OFFSET		0x60
@@ -50,11 +46,11 @@ struct p2sb_platdata {
  * This is needed by FSP-M which uses the High Precision Event Timer.
  *
  * @dev: P2SB device
- * @return 0 if OK, -ve on error
+ * Return: 0 if OK, -ve on error
  */
 static int p2sb_early_init(struct udevice *dev)
 {
-	struct p2sb_platdata *plat = dev_get_platdata(dev);
+	struct p2sb_plat *plat = dev_get_plat(dev);
 	pci_dev_t pdev = plat->bdf;
 
 	/*
@@ -87,12 +83,12 @@ static int p2sb_spl_init(struct udevice *dev)
 	return 0;
 }
 
-int p2sb_ofdata_to_platdata(struct udevice *dev)
+int p2sb_of_to_plat(struct udevice *dev)
 {
 	struct p2sb_uc_priv *upriv = dev_get_uclass_priv(dev);
-	struct p2sb_platdata *plat = dev_get_platdata(dev);
+	struct p2sb_plat *plat = dev_get_plat(dev);
 
-#if !CONFIG_IS_ENABLED(OF_PLATDATA)
+#if CONFIG_IS_ENABLED(OF_REAL)
 	int ret;
 	u32 base[2];
 
@@ -127,35 +123,77 @@ static int p2sb_probe(struct udevice *dev)
 	return 0;
 }
 
-static int p2sb_child_post_bind(struct udevice *dev)
+static void p2sb_set_hide_bit(struct udevice *dev, bool hide)
 {
-#if !CONFIG_IS_ENABLED(OF_PLATDATA)
-	struct p2sb_child_platdata *pplat = dev_get_parent_platdata(dev);
-	int ret;
-	u32 pid;
+	dm_pci_clrset_config8(dev, PCH_P2SB_E0 + 1, HIDE_BIT,
+			      hide ? HIDE_BIT : 0);
+}
 
-	ret = dev_read_u32(dev, "intel,p2sb-port-id", &pid);
-	if (ret)
-		return ret;
-	pplat->pid = pid;
-#endif
+static int intel_p2sb_set_hide(struct udevice *dev, bool hide)
+{
+	u16 vendor;
+
+	if (!CONFIG_IS_ENABLED(PCI))
+		return -EPERM;
+	p2sb_set_hide_bit(dev, hide);
+
+	dm_pci_read_config16(dev, PCI_VENDOR_ID, &vendor);
+	if (hide && vendor != 0xffff)
+		return log_msg_ret("hide", -EEXIST);
+	else if (!hide && vendor != PCI_VENDOR_ID_INTEL)
+		return log_msg_ret("unhide", -ENOMEDIUM);
 
 	return 0;
 }
 
+static int p2sb_remove(struct udevice *dev)
+{
+	int ret;
+
+	ret = intel_p2sb_set_hide(dev, true);
+	if (ret)
+		return log_msg_ret("hide", ret);
+
+	return 0;
+}
+
+static int p2sb_child_post_bind(struct udevice *dev)
+{
+	if (CONFIG_IS_ENABLED(OF_REAL)) {
+		struct p2sb_child_plat *pplat = dev_get_parent_plat(dev);
+		int ret;
+		u32 pid;
+
+		ret = dev_read_u32(dev, "intel,p2sb-port-id", &pid);
+		if (ret)
+			return ret;
+		pplat->pid = pid;
+	}
+
+	return 0;
+}
+
+static const struct p2sb_ops p2sb_ops = {
+	.set_hide	= intel_p2sb_set_hide,
+};
+
+#if CONFIG_IS_ENABLED(OF_REAL)
 static const struct udevice_id p2sb_ids[] = {
 	{ .compatible = "intel,p2sb" },
 	{ }
 };
+#endif
 
-U_BOOT_DRIVER(p2sb_drv) = {
+U_BOOT_DRIVER(intel_p2sb) = {
 	.name		= "intel_p2sb",
 	.id		= UCLASS_P2SB,
-	.of_match	= p2sb_ids,
+	.of_match	= of_match_ptr(p2sb_ids),
 	.probe		= p2sb_probe,
-	.ofdata_to_platdata = p2sb_ofdata_to_platdata,
-	.platdata_auto_alloc_size = sizeof(struct p2sb_platdata),
-	.per_child_platdata_auto_alloc_size =
-		sizeof(struct p2sb_child_platdata),
+	.remove		= p2sb_remove,
+	.ops		= &p2sb_ops,
+	.of_to_plat = p2sb_of_to_plat,
+	.plat_auto	= sizeof(struct p2sb_plat),
+	.per_child_plat_auto	= sizeof(struct p2sb_child_plat),
 	.child_post_bind = p2sb_child_post_bind,
+	.flags		= DM_FLAG_OS_PREPARE,
 };

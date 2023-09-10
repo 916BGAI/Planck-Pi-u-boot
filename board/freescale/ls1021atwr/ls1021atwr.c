@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright 2014 Freescale Semiconductor, Inc.
- * Copyright 2019 NXP
+ * Copyright 2019, 2021-2022 NXP
  */
 
 #include <common.h>
@@ -11,6 +11,7 @@
 #include <i2c.h>
 #include <init.h>
 #include <net.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
 #include <asm/arch/immap_ls102xa.h>
 #include <asm/arch/clock.h>
@@ -25,7 +26,6 @@
 #include <netdev.h>
 #include <fsl_mdio.h>
 #include <tsec.h>
-#include <fsl_sec.h>
 #include <fsl_devdis.h>
 #include <spl.h>
 #include <linux/delay.h>
@@ -34,13 +34,13 @@
 #include <fsl_qe.h>
 #endif
 #include <fsl_validate.h>
-
+#include <dm/uclass.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
 #define VERSION_MASK		0x00FF
 #define BANK_MASK		0x0001
-#define CONFIG_RESET		0x1
+#define CFG_RESET		0x1
 #define INIT_RESET		0x1
 
 #define CPLD_SET_MUX_SERDES	0x20
@@ -98,7 +98,7 @@ struct cpld_data {
 #if !defined(CONFIG_QSPI_BOOT) && !defined(CONFIG_SD_BOOT_QSPI)
 static void cpld_show(void)
 {
-	struct cpld_data *cpld_data = (void *)(CONFIG_SYS_CPLD_BASE);
+	struct cpld_data *cpld_data = (void *)(CFG_SYS_CPLD_BASE);
 
 	printf("CPLD:  V%x.%x\nPCBA:  V%x.0\nVBank: %d\n",
 	       in_8(&cpld_data->cpld_ver) & VERSION_MASK,
@@ -106,7 +106,7 @@ static void cpld_show(void)
 	       in_8(&cpld_data->pcba_ver) & VERSION_MASK,
 	       in_8(&cpld_data->vbank) & BANK_MASK);
 
-#ifdef CONFIG_DEBUG
+#ifdef DEBUG
 	printf("soft_mux_on =%x\n",
 	       in_8(&cpld_data->soft_mux_on));
 	printf("cfg_rcw_src1 =%x\n",
@@ -143,7 +143,7 @@ int checkboard(void)
 
 void ddrmc_init(void)
 {
-	struct ccsr_ddr *ddr = (struct ccsr_ddr *)CONFIG_SYS_FSL_DDR_ADDR;
+	struct ccsr_ddr *ddr = (struct ccsr_ddr *)CFG_SYS_FSL_DDR_ADDR;
 	u32 temp_sdram_cfg, tmp;
 
 	out_be32(&ddr->sdram_cfg, DDR_SDRAM_CFG);
@@ -162,7 +162,7 @@ void ddrmc_init(void)
 	if (is_warm_boot()) {
 		out_be32(&ddr->sdram_cfg_2,
 			 DDR_SDRAM_CFG_2 & ~SDRAM_CFG2_D_INIT);
-		out_be32(&ddr->init_addr, CONFIG_SYS_SDRAM_BASE);
+		out_be32(&ddr->init_addr, CFG_SYS_SDRAM_BASE);
 		out_be32(&ddr->init_ext_addr, (1 << 31));
 
 		/* DRAM VRef will not be trained */
@@ -239,7 +239,7 @@ int dram_init(void)
 	return 0;
 }
 
-int board_eth_init(bd_t *bis)
+int board_eth_init(struct bd_info *bis)
 {
 	return pci_eth_init(bis);
 }
@@ -248,7 +248,7 @@ int board_eth_init(bd_t *bis)
 static void convert_serdes_mux(int type, int need_reset)
 {
 	char current_serdes;
-	struct cpld_data *cpld_data = (void *)(CONFIG_SYS_CPLD_BASE);
+	struct cpld_data *cpld_data = (void *)(CFG_SYS_CPLD_BASE);
 
 	current_serdes = cpld_data->serdes_mux;
 
@@ -282,13 +282,13 @@ static void convert_serdes_mux(int type, int need_reset)
 
 	if (need_reset == 1) {
 		printf("Reset board to enable configuration\n");
-		cpld_data->system_rst = CONFIG_RESET;
+		cpld_data->system_rst = CFG_RESET;
 	}
 }
 
 int config_serdes_mux(void)
 {
-	struct ccsr_gur __iomem *gur = (void *)(CONFIG_SYS_FSL_GUTS_ADDR);
+	struct ccsr_gur __iomem *gur = (void *)(CFG_SYS_FSL_GUTS_ADDR);
 	u32 protocol = in_be32(&gur->rcwsr[4]) & RCWSR4_SRDS1_PRTCL_MASK;
 
 	protocol >>= RCWSR4_SRDS1_PRTCL_SHIFT;
@@ -322,7 +322,7 @@ int config_serdes_mux(void)
 #if !defined(CONFIG_QSPI_BOOT) && !defined(CONFIG_SD_BOOT_QSPI)
 int config_board_mux(void)
 {
-	struct cpld_data *cpld_data = (void *)(CONFIG_SYS_CPLD_BASE);
+	struct cpld_data *cpld_data = (void *)(CFG_SYS_CPLD_BASE);
 	int conflict_flag;
 
 	conflict_flag = 0;
@@ -383,7 +383,7 @@ conflict:
 
 int board_early_init_f(void)
 {
-	struct ccsr_scfg *scfg = (struct ccsr_scfg *)CONFIG_SYS_FSL_SCFG_ADDR;
+	struct ccsr_scfg *scfg = (struct ccsr_scfg *)CFG_SYS_FSL_SCFG_ADDR;
 
 #ifdef CONFIG_TSEC_ENET
 	/* clear BD & FR bits for BE BD's and frame data */
@@ -439,7 +439,7 @@ void board_init_f(ulong dummy)
 	 * in last boot.
 	 */
 	if (is_warm_boot()) {
-		second_uboot = (void (*)(void))CONFIG_SYS_TEXT_BASE;
+		second_uboot = (void (*)(void))CONFIG_TEXT_BASE;
 		second_uboot();
 	}
 
@@ -457,7 +457,7 @@ void ls1twr_program_regulator(void)
 #define MC34VR500_ADDR			0x8
 #define MC34VR500_DEVICEID		0x4
 #define MC34VR500_DEVICEID_MASK		0x0f
-#ifdef CONFIG_DM_I2C
+#if CONFIG_IS_ENABLED(DM_I2C)
 	struct udevice *dev;
 	int ret;
 
@@ -530,6 +530,15 @@ int board_init(void)
 #if defined(CONFIG_SPL_BUILD)
 void spl_board_init(void)
 {
+	if (IS_ENABLED(CONFIG_FSL_CAAM)) {
+		struct udevice *dev;
+		int ret;
+
+		ret = uclass_get_device_by_driver(UCLASS_MISC, DM_DRIVER_GET(caam_jr), &dev);
+		if (ret)
+			printf("Failed to initialize caam_jr: %d\n", ret);
+	}
+
 	ls102xa_smmu_stream_id_init();
 }
 #endif
@@ -554,10 +563,7 @@ int misc_init_r(void)
 #if !defined(CONFIG_QSPI_BOOT) && !defined(CONFIG_SD_BOOT_QSPI)
 	config_board_mux();
 #endif
-
-#ifdef CONFIG_FSL_CAAM
-	return sec_init();
-#endif
+	return 0;
 }
 #endif
 
@@ -570,7 +576,7 @@ void board_sleep_prepare(void)
 }
 #endif
 
-int ft_board_setup(void *blob, bd_t *bd)
+int ft_board_setup(void *blob, struct bd_info *bd)
 {
 	ft_cpu_setup(blob, bd);
 
@@ -604,14 +610,14 @@ u16 flash_read16(void *addr)
 	&& !defined(CONFIG_SPL_BUILD)
 static void convert_flash_bank(char bank)
 {
-	struct cpld_data *cpld_data = (void *)(CONFIG_SYS_CPLD_BASE);
+	struct cpld_data *cpld_data = (void *)(CFG_SYS_CPLD_BASE);
 
 	printf("Now switch to boot from flash bank %d.\n", bank);
 	cpld_data->soft_mux_on = CPLD_SET_BOOT_BANK;
 	cpld_data->vbank = bank;
 
 	printf("Reset board to enable configuration.\n");
-	cpld_data->system_rst = CONFIG_RESET;
+	cpld_data->system_rst = CFG_RESET;
 }
 
 static int flash_bank_cmd(struct cmd_tbl *cmdtp, int flag, int argc,
@@ -638,12 +644,12 @@ U_BOOT_CMD(
 static int cpld_reset_cmd(struct cmd_tbl *cmdtp, int flag, int argc,
 			  char *const argv[])
 {
-	struct cpld_data *cpld_data = (void *)(CONFIG_SYS_CPLD_BASE);
+	struct cpld_data *cpld_data = (void *)(CFG_SYS_CPLD_BASE);
 
 	if (argc > 2)
 		return CMD_RET_USAGE;
 	if ((argc == 1) || (strcmp(argv[1], "conf") == 0))
-		cpld_data->system_rst = CONFIG_RESET;
+		cpld_data->system_rst = CFG_RESET;
 	else if (strcmp(argv[1], "init") == 0)
 		cpld_data->global_rst = INIT_RESET;
 	else
@@ -665,7 +671,7 @@ U_BOOT_CMD(
 static void print_serdes_mux(void)
 {
 	char current_serdes;
-	struct cpld_data *cpld_data = (void *)(CONFIG_SYS_CPLD_BASE);
+	struct cpld_data *cpld_data = (void *)(CFG_SYS_CPLD_BASE);
 
 	current_serdes = cpld_data->serdes_mux;
 

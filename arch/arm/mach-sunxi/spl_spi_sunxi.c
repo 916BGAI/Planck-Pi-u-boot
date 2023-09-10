@@ -7,12 +7,12 @@
 #include <image.h>
 #include <log.h>
 #include <spl.h>
+#include <asm/arch/spl.h>
 #include <asm/gpio.h>
 #include <asm/io.h>
 #include <linux/bitops.h>
 #include <linux/delay.h>
 #include <linux/libfdt.h>
-#include <asm/arch/spl.h>
 
 #ifdef CONFIG_SPL_OS_BOOT
 #error CONFIG_SPL_OS_BOOT is not supported yet
@@ -78,7 +78,7 @@
 
 #define CCM_AHB_GATING0             (0x01C20000 + 0x60)
 #define CCM_H6_SPI_BGR_REG          (0x03001000 + 0x96c)
-#ifdef CONFIG_MACH_SUN50I_H6
+#ifdef CONFIG_SUN50I_GEN_H6
 #define CCM_SPI0_CLK                (0x03001000 + 0x940)
 #else
 #define CCM_SPI0_CLK                (0x01C20000 + 0xA0)
@@ -97,7 +97,7 @@
 /*
  * Allwinner A10/A20 SoCs were using pins PC0,PC1,PC2,PC23 for booting
  * from SPI Flash, everything else is using pins PC0,PC1,PC2,PC3.
- * The H6 uses PC0, PC2, PC3, PC5.
+ * The H6 uses PC0, PC2, PC3, PC5, the H616 PC0, PC2, PC3, PC4.
  */
 static void spi0_pinmux_setup(unsigned int pin_function)
 {
@@ -105,11 +105,14 @@ static void spi0_pinmux_setup(unsigned int pin_function)
 	sunxi_gpio_set_cfgpin(SUNXI_GPC(0), pin_function);
 	sunxi_gpio_set_cfgpin(SUNXI_GPC(2), pin_function);
 
-	/* All chips except H6 use PC1, and only H6 uses PC5. */
-	if (!IS_ENABLED(CONFIG_MACH_SUN50I_H6))
+	/* All chips except H6 and H616 use PC1. */
+	if (!IS_ENABLED(CONFIG_SUN50I_GEN_H6))
 		sunxi_gpio_set_cfgpin(SUNXI_GPC(1), pin_function);
-	else
+
+	if (IS_ENABLED(CONFIG_MACH_SUN50I_H6))
 		sunxi_gpio_set_cfgpin(SUNXI_GPC(5), pin_function);
+	if (IS_ENABLED(CONFIG_MACH_SUN50I_H616))
+		sunxi_gpio_set_cfgpin(SUNXI_GPC(4), pin_function);
 
 	/* Older generations use PC23 for CS, newer ones use PC3. */
 	if (IS_ENABLED(CONFIG_MACH_SUN4I) || IS_ENABLED(CONFIG_MACH_SUN7I) ||
@@ -122,8 +125,7 @@ static void spi0_pinmux_setup(unsigned int pin_function)
 static bool is_sun6i_gen_spi(void)
 {
 	return IS_ENABLED(CONFIG_SUNXI_GEN_SUN6I) ||
-	       IS_ENABLED(CONFIG_MACH_SUN50I_H6) ||
-		   IS_ENABLED(CONFIG_MACH_SUNIV);
+	       IS_ENABLED(CONFIG_SUN50I_GEN_H6);
 }
 
 static uintptr_t spi0_base_address(void)
@@ -131,13 +133,11 @@ static uintptr_t spi0_base_address(void)
 	if (IS_ENABLED(CONFIG_MACH_SUN8I_R40))
 		return 0x01C05000;
 
-	if (IS_ENABLED(CONFIG_MACH_SUN50I_H6))
+	if (IS_ENABLED(CONFIG_SUN50I_GEN_H6))
 		return 0x05010000;
 
-	if (IS_ENABLED(CONFIG_MACH_SUNIV))
-		return 0x01C05000;
-
-	if (!is_sun6i_gen_spi())
+	if (!is_sun6i_gen_spi() ||
+	    IS_ENABLED(CONFIG_MACH_SUNIV))
 		return 0x01C05000;
 
 	return 0x01C68000;
@@ -151,27 +151,26 @@ static void spi0_enable_clock(void)
 	uintptr_t base = spi0_base_address();
 
 	/* Deassert SPI0 reset on SUN6I */
-	if (IS_ENABLED(CONFIG_MACH_SUN50I_H6))
+	if (IS_ENABLED(CONFIG_SUN50I_GEN_H6))
 		setbits_le32(CCM_H6_SPI_BGR_REG, (1U << 16) | 0x1);
 	else if (is_sun6i_gen_spi())
 		setbits_le32(SUN6I_BUS_SOFT_RST_REG0,
 			     (1 << AHB_RESET_SPI0_SHIFT));
 
 	/* Open the SPI0 gate */
-	if (!IS_ENABLED(CONFIG_MACH_SUN50I_H6))
+	if (!IS_ENABLED(CONFIG_SUN50I_GEN_H6))
 		setbits_le32(CCM_AHB_GATING0, (1 << AHB_GATE_OFFSET_SPI0));
 
-#ifndef CONFIG_MACH_SUNIV
-	/* Divide by 4 */
-	writel(SPI0_CLK_DIV_BY_4, base + (is_sun6i_gen_spi() ?
-				  SUN6I_SPI0_CCTL : SUN4I_SPI0_CCTL));
-	/* 24MHz from OSC24M */
-	writel((1 << 31), CCM_SPI0_CLK);
-#else
-	/* Divide by 32, clock source is AHB clock 200MHz */
-	writel(SPI0_CLK_DIV_BY_32, base + (is_sun6i_gen_spi() ?
-				  SUN6I_SPI0_CCTL : SUN4I_SPI0_CCTL));
-#endif
+	if (IS_ENABLED(CONFIG_MACH_SUNIV)) {
+		/* Divide by 32, clock source is AHB clock 200MHz */
+		writel(SPI0_CLK_DIV_BY_32, base + SUN6I_SPI0_CCTL);
+	} else {
+		/* Divide by 4 */
+		writel(SPI0_CLK_DIV_BY_4, base + (is_sun6i_gen_spi() ?
+					  SUN6I_SPI0_CCTL : SUN4I_SPI0_CCTL));
+		/* 24MHz from OSC24M */
+		writel((1 << 31), CCM_SPI0_CLK);
+	}
 
 	if (is_sun6i_gen_spi()) {
 		/* Enable SPI in the master mode and do a soft reset */
@@ -201,17 +200,16 @@ static void spi0_disable_clock(void)
 		clrbits_le32(base + SUN4I_SPI0_CTL, SUN4I_CTL_MASTER |
 					     SUN4I_CTL_ENABLE);
 
-#ifndef CONFIG_MACH_SUNIV
 	/* Disable the SPI0 clock */
-	writel(0, CCM_SPI0_CLK);
-#endif
+	if (!IS_ENABLED(CONFIG_MACH_SUNIV))
+		writel(0, CCM_SPI0_CLK);
 
 	/* Close the SPI0 gate */
-	if (!IS_ENABLED(CONFIG_MACH_SUN50I_H6))
+	if (!IS_ENABLED(CONFIG_SUN50I_GEN_H6))
 		clrbits_le32(CCM_AHB_GATING0, (1 << AHB_GATE_OFFSET_SPI0));
 
 	/* Assert SPI0 reset on SUN6I */
-	if (IS_ENABLED(CONFIG_MACH_SUN50I_H6))
+	if (IS_ENABLED(CONFIG_SUN50I_GEN_H6))
 		clrbits_le32(CCM_H6_SPI_BGR_REG, (1U << 16) | 0x1);
 	else if (is_sun6i_gen_spi())
 		clrbits_le32(SUN6I_BUS_SOFT_RST_REG0,
@@ -223,10 +221,9 @@ static void spi0_init(void)
 	unsigned int pin_function = SUNXI_GPC_SPI0;
 
 	if (IS_ENABLED(CONFIG_MACH_SUN50I) ||
-	    IS_ENABLED(CONFIG_MACH_SUN50I_H6))
+	    IS_ENABLED(CONFIG_SUN50I_GEN_H6))
 		pin_function = SUN50I_GPC_SPI0;
-
-	if (IS_ENABLED(CONFIG_MACH_SUNIV))
+	else if (IS_ENABLED(CONFIG_MACH_SUNIV))
 		pin_function = SUNIV_GPC_SPI0;
 
 	spi0_pinmux_setup(pin_function);
@@ -245,9 +242,11 @@ static void spi0_deinit(void)
 	spi0_pinmux_setup(pin_function);
 }
 
-static void sunxi_spi0_transmit(
-				 u8 *send, u32 ssize,
-				 u8*recv, u32 rsize,
+/*****************************************************************************/
+
+#define SPI_READ_MAX_SIZE 60 /* FIFO size, minus 4 bytes of the header */
+
+static void sunxi_spi0_read_data(u8 *buf, u32 addr, u32 bufsize,
 				 ulong spi_ctl_reg,
 				 ulong spi_ctl_xch_bitmask,
 				 ulong spi_fifo_reg,
@@ -257,160 +256,67 @@ static void sunxi_spi0_transmit(
 				 ulong spi_tc_reg,
 				 ulong spi_bcc_reg)
 {
-	writel(ssize + rsize, spi_bc_reg); /* Burst counter (total bytes) */
-	writel(ssize, spi_tc_reg);           /* Transfer counter (bytes to send) */
+	writel(4 + bufsize, spi_bc_reg); /* Burst counter (total bytes) */
+	writel(4, spi_tc_reg);           /* Transfer counter (bytes to send) */
 	if (spi_bcc_reg)
-		writel(ssize, spi_bcc_reg);  /* SUN6I also needs this */
+		writel(4, spi_bcc_reg);  /* SUN6I also needs this */
 
-	/* Send buffer */
-	for(u32 i = 0; i < ssize; i++)
-		writeb(send[i], spi_tx_reg);
+	/* Send the Read Data Bytes (03h) command header */
+	writeb(0x03, spi_tx_reg);
+	writeb((u8)(addr >> 16), spi_tx_reg);
+	writeb((u8)(addr >> 8), spi_tx_reg);
+	writeb((u8)(addr), spi_tx_reg);
 
 	/* Start the data transfer */
 	setbits_le32(spi_ctl_reg, spi_ctl_xch_bitmask);
 
 	/* Wait until everything is received in the RX FIFO */
-	while ((readl(spi_fifo_reg) & 0x7F) < ssize + rsize)
+	while ((readl(spi_fifo_reg) & 0x7F) < 4 + bufsize)
 		;
 
-	/* Skip send bytes */
-	for(u32 i = 0; i < ssize; i++)
-		readb(spi_rx_reg);
+	/* Skip 4 bytes */
+	readl(spi_rx_reg);
 
 	/* Read the data */
-	while (rsize-- > 0)
-		*recv++ = readb(spi_rx_reg);
+	while (bufsize-- > 0)
+		*buf++ = readb(spi_rx_reg);
 
 	/* tSHSL time is up to 100 ns in various SPI flash datasheets */
 	udelay(1);
 }
 
-static void spi0_transmit(
-				 void *send, u32 ssize,
-				 void *recv, u32 rsize)
-{
-	u8 *sbuf = send;
-	u8 *rbuf = recv;
-	uintptr_t base = spi0_base_address();
-	if (is_sun6i_gen_spi()) {
-		sunxi_spi0_transmit(
-					 sbuf, ssize,
-					 rbuf, rsize,
-					 base + SUN6I_SPI0_TCR,
-					 SUN6I_TCR_XCH,
-					 base + SUN6I_SPI0_FIFO_STA,
-					 base + SUN6I_SPI0_TXD,
-					 base + SUN6I_SPI0_RXD,
-					 base + SUN6I_SPI0_MBC,
-					 base + SUN6I_SPI0_MTC,
-					 base + SUN6I_SPI0_BCC);
-	} else {
-		sunxi_spi0_transmit(
-					 sbuf, ssize,
-					 rbuf, rsize,
-					 base + SUN4I_SPI0_CTL,
-					 SUN4I_CTL_XCH,
-					 base + SUN4I_SPI0_FIFO_STA,
-					 base + SUN4I_SPI0_TX,
-					 base + SUN4I_SPI0_RX,
-					 base + SUN4I_SPI0_BC,
-					 base + SUN4I_SPI0_TC,
-					 0);
-	}
-}
-
-enum flashtype
-{
-	FLASHTYPE_UNINIT,
-	FLASHTYPE_NOR,
-	FLASHTYPE_NAND,
-};
-
-static enum flashtype spi0_get_flash_type(void)
-{
-	static enum flashtype type;
-	static u8 chipid[2];
-	if(type == FLASHTYPE_UNINIT)
-	{
-		type = FLASHTYPE_NOR;
-		spi0_transmit("\x9f\x00", 2, chipid, 2); // Read Chip ID
-		if (!memcmp(chipid, "\xc8\xf1", 2)) {
-			printf("SPI-NAND: GigaDevice GD5F1GQ4UAxxG\n");
-			type = FLASHTYPE_NAND;
-		}
-	}
-	return type;
-}
-
-static u32 nandpage = -1;
-
-static u32 spi0_read_small_data(void *buf, u32 addr, u32 len)
-{
-	switch(spi0_get_flash_type())
-	{
-	case FLASHTYPE_NAND:
-	{
-		u32 page, wrap;
-		page = addr >> 11;
-		if (nandpage != page) {
-			u8 readcache[] = {0x13, (u8)(page >> 16), (u8)(page >> 8), (u8)(page)};
-			spi0_transmit(readcache, 4, NULL, 0);
-			udelay(300);
-			nandpage = page;
-		}
-		addr &= 0x7FF;
-		if (len + addr > 0x800) 
-			len = 0x800 - addr;
-		if (len > 0 && len <= 16) {
-            wrap = 12;
-        } else if(len > 16 && len <= 64) {
-            wrap = 8;
-        } else if(len > 65 && len <= 2048) {
-            wrap = 4;
-        } else {
-            wrap = 0;
-        }
-		switch(wrap)
-		{
-		case 12:
-			if((addr & 0xF) + len > 16) wrap = 8;
-			break;
-		case 8:
-			if((addr & 0x3F) + len > 65) wrap = 4;
-			break;
-		default:
-			wrap = 0;
-			break;
-		}
-		u8 read[] = {0x03, (u8)((addr >> 8) & 0xF) | (wrap << 4), addr & 0xFF, 0};
-		spi0_transmit(read, 4, buf, len);
-	}
-	break;
-	default:
-	{
-		u8 read[] = {0x03, (u8)(addr >> 16), (u8)(addr >> 8), (u8)(addr)};
-		spi0_transmit(read, 4, buf, len);
-	}
-	break;
-	}
-	return len;
-}
-
-/*****************************************************************************/
-
-#define SPI_READ_MAX_SIZE 60 /* FIFO size, minus 4 bytes of the header */
-
 static void spi0_read_data(void *buf, u32 addr, u32 len)
 {
 	u8 *buf8 = buf;
 	u32 chunk_len;
+	uintptr_t base = spi0_base_address();
 
 	while (len > 0) {
 		chunk_len = len;
 		if (chunk_len > SPI_READ_MAX_SIZE)
 			chunk_len = SPI_READ_MAX_SIZE;
-		
-		chunk_len = spi0_read_small_data(buf8, addr, chunk_len);
+
+		if (is_sun6i_gen_spi()) {
+			sunxi_spi0_read_data(buf8, addr, chunk_len,
+					     base + SUN6I_SPI0_TCR,
+					     SUN6I_TCR_XCH,
+					     base + SUN6I_SPI0_FIFO_STA,
+					     base + SUN6I_SPI0_TXD,
+					     base + SUN6I_SPI0_RXD,
+					     base + SUN6I_SPI0_MBC,
+					     base + SUN6I_SPI0_MTC,
+					     base + SUN6I_SPI0_BCC);
+		} else {
+			sunxi_spi0_read_data(buf8, addr, chunk_len,
+					     base + SUN4I_SPI0_CTL,
+					     SUN4I_CTL_XCH,
+					     base + SUN4I_SPI0_FIFO_STA,
+					     base + SUN4I_SPI0_TX,
+					     base + SUN4I_SPI0_RX,
+					     base + SUN4I_SPI0_BC,
+					     base + SUN4I_SPI0_TC,
+					     0);
+		}
 
 		len  -= chunk_len;
 		buf8 += chunk_len;
@@ -432,28 +338,17 @@ static int spl_spi_load_image(struct spl_image_info *spl_image,
 			      struct spl_boot_device *bootdev)
 {
 	int ret = 0;
-	u32 uboot_addr;
-	struct image_header *header;
-	header = (struct image_header *)(CONFIG_SYS_TEXT_BASE);
-	uboot_addr = CONFIG_SYS_SPI_U_BOOT_OFFS;
+	struct legacy_img_hdr *header;
+	uint32_t load_offset = sunxi_get_spl_size();
+
+	header = (struct legacy_img_hdr *)CONFIG_TEXT_BASE;
+	load_offset = max_t(uint32_t, load_offset, CONFIG_SYS_SPI_U_BOOT_OFFS);
 
 	spi0_init();
-	
-#ifdef CONFIG_MACH_SUNIV
-	unsigned char *buffer = (unsigned char *)(CONFIG_SYS_TEXT_BASE);
-	spi0_read_data(buffer, 0, 16);
-	if (!is_boot0_magic(buffer + 4)) {
-		return -1;
-	}
-	if (spi0_get_flash_type() == FLASHTYPE_NAND) {
-		printf("SPI-NAND: U-Boot address: %u\n", CONFIG_SYS_SPI_NAND_U_BOOT_OFFS);
-		uboot_addr = CONFIG_SYS_SPI_NAND_U_BOOT_OFFS;
-	}
-#endif
-	
-	spi0_read_data((void *)header, uboot_addr, 0x40);
 
-    if (IS_ENABLED(CONFIG_SPL_LOAD_FIT) &&
+	spi0_read_data((void *)header, load_offset, 0x40);
+
+        if (IS_ENABLED(CONFIG_SPL_LOAD_FIT) &&
 		image_get_magic(header) == FDT_MAGIC) {
 		struct spl_load_info load;
 
@@ -464,14 +359,14 @@ static int spl_spi_load_image(struct spl_image_info *spl_image,
 		load.bl_len = 1;
 		load.read = spi_load_read;
 		ret = spl_load_simple_fit(spl_image, &load,
-					  uboot_addr, header);
+					  load_offset, header);
 	} else {
-		ret = spl_parse_image_header(spl_image, header);
+		ret = spl_parse_image_header(spl_image, bootdev, header);
 		if (ret)
 			return ret;
 
 		spi0_read_data((void *)spl_image->load_addr,
-			       uboot_addr, spl_image->size);
+			       load_offset, spl_image->size);
 	}
 
 	spi0_deinit();

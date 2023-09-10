@@ -7,15 +7,17 @@
 #include <clk.h>
 #include <common.h>
 #include <dm.h>
+#include <dm/device_compat.h>
 #include <dm/devres.h>
 #include <generic-phy.h>
 #include <malloc.h>
-#include <usb.h>
-#include <linux/errno.h>
-#include <linux/compat.h>
 #include <power/regulator.h>
-#include <linux/iopoll.h>
+#include <usb.h>
 #include <usb/xhci.h>
+#include <linux/bitfield.h>
+#include <linux/compat.h>
+#include <linux/errno.h>
+#include <linux/iopoll.h>
 
 /* IPPC (IP Port Control) registers */
 #define IPPC_IP_PW_CTRL0		0x00
@@ -49,6 +51,25 @@
 #define IPPC_U3_CTRL(p)	(IPPC_U3_CTRL_0P + ((p) * 0x08))
 #define IPPC_U2_CTRL(p)	(IPPC_U2_CTRL_0P + ((p) * 0x08))
 
+/* xHCI CSR */
+#define LS_EOF_CFG		0x930
+#define LSEOF_OFFSET		0x89
+
+#define FS_EOF_CFG		0x934
+#define FSEOF_OFFSET		0x2e
+
+#define SS_GEN1_EOF_CFG		0x93c
+#define SSG1EOF_OFFSET		0x78
+
+#define HFCNTR_CFG		0x944
+#define ITP_DELTA_CLK_MASK	GENMASK(5, 1)
+#define FRMCNT_LEV1_RANG_MASK	GENMASK(19, 8)
+
+#define SS_GEN2_EOF_CFG		0x990
+#define SSG2EOF_OFFSET		0x3c
+
+#define XSEOF_OFFSET_MASK	GENMASK(11, 0)
+
 struct mtk_xhci {
 	struct xhci_ctrl ctrl;	/* Needs to come first in this struct! */
 	struct xhci_hccr *hcd;
@@ -60,10 +81,37 @@ struct mtk_xhci {
 	struct phy_bulk phys;
 	int num_u2ports;
 	int num_u3ports;
+	u32 u3p_dis_msk;
+	u32 u2p_dis_msk;
 };
+
+/*
+ * workaround for mt8195:
+ * MT8195 has 4 controllers, the controller1~3's default SOF/ITP interval
+ * is calculated from the frame counter clock 24M, but in fact, the clock
+ * is 48M.
+ */
+static void xhci_mtk_set_frame_interval(struct mtk_xhci *mtk)
+{
+	void __iomem *mac = (void __iomem *)mtk->hcd;
+
+	if (!ofnode_device_is_compatible(dev_ofnode(mtk->dev), "mediatek,mt8195-xhci"))
+		return;
+
+	clrsetbits_le32(mac + HFCNTR_CFG,
+			ITP_DELTA_CLK_MASK | FRMCNT_LEV1_RANG_MASK,
+			FIELD_PREP(ITP_DELTA_CLK_MASK, 0xa) |
+			FIELD_PREP(FRMCNT_LEV1_RANG_MASK, 0x12b));
+
+	clrsetbits_le32(mac + LS_EOF_CFG, XSEOF_OFFSET_MASK, LSEOF_OFFSET);
+	clrsetbits_le32(mac + FS_EOF_CFG, XSEOF_OFFSET_MASK, FSEOF_OFFSET);
+	clrsetbits_le32(mac + SS_GEN1_EOF_CFG, XSEOF_OFFSET_MASK, SSG1EOF_OFFSET);
+	clrsetbits_le32(mac + SS_GEN2_EOF_CFG, XSEOF_OFFSET_MASK, SSG2EOF_OFFSET);
+}
 
 static int xhci_mtk_host_enable(struct mtk_xhci *mtk)
 {
+	int u3_ports_disabed = 0;
 	u32 value;
 	u32 check_val;
 	int ret;
@@ -72,15 +120,23 @@ static int xhci_mtk_host_enable(struct mtk_xhci *mtk)
 	/* power on host ip */
 	clrbits_le32(mtk->ippc + IPPC_IP_PW_CTRL1, CTRL1_IP_HOST_PDN);
 
-	/* power on and enable all u3 ports */
+	/* power on and enable u3 ports except skipped ones */
 	for (i = 0; i < mtk->num_u3ports; i++) {
+		if (BIT(i) & mtk->u3p_dis_msk) {
+			u3_ports_disabed++;
+			continue;
+		}
+
 		clrsetbits_le32(mtk->ippc + IPPC_U3_CTRL(i),
 				CTRL_U3_PORT_PDN | CTRL_U3_PORT_DIS,
 				CTRL_U3_PORT_HOST_SEL);
 	}
 
-	/* power on and enable all u2 ports */
+	/* power on and enable u2 ports except skipped ones */
 	for (i = 0; i < mtk->num_u2ports; i++) {
+		if (BIT(i) & mtk->u2p_dis_msk)
+			continue;
+
 		clrsetbits_le32(mtk->ippc + IPPC_U2_CTRL(i),
 				CTRL_U2_PORT_PDN | CTRL_U2_PORT_DIS,
 				CTRL_U2_PORT_HOST_SEL);
@@ -93,7 +149,7 @@ static int xhci_mtk_host_enable(struct mtk_xhci *mtk)
 	check_val = STS1_SYSPLL_STABLE | STS1_REF_RST |
 			STS1_SYS125_RST | STS1_XHCI_RST;
 
-	if (mtk->num_u3ports)
+	if (mtk->num_u3ports > u3_ports_disabed)
 		check_val |= STS1_U3_MAC_RST;
 
 	ret = readl_poll_timeout(mtk->ippc + IPPC_IP_PW_STS1, value,
@@ -110,11 +166,13 @@ static int xhci_mtk_host_disable(struct mtk_xhci *mtk)
 
 	/* power down all u3 ports */
 	for (i = 0; i < mtk->num_u3ports; i++)
-		setbits_le32(mtk->ippc + IPPC_U3_CTRL(i), CTRL_U3_PORT_PDN);
+		setbits_le32(mtk->ippc + IPPC_U3_CTRL(i),
+			     CTRL_U3_PORT_PDN | CTRL_U3_PORT_DIS);
 
 	/* power down all u2 ports */
 	for (i = 0; i < mtk->num_u2ports; i++)
-		setbits_le32(mtk->ippc + IPPC_U2_CTRL(i), CTRL_U2_PORT_PDN);
+		setbits_le32(mtk->ippc + IPPC_U2_CTRL(i),
+			     CTRL_U2_PORT_PDN | CTRL_U2_PORT_DIS);
 
 	/* power down host ip */
 	setbits_le32(mtk->ippc + IPPC_IP_PW_CTRL1, CTRL1_IP_HOST_PDN);
@@ -174,6 +232,12 @@ static int xhci_mtk_ofdata_get(struct mtk_xhci *mtk)
 					  &mtk->vbus_supply);
 	if (ret)
 		debug("can't get vbus regulator %d!\n", ret);
+
+	/* optional properties to disable ports, ignore the error */
+	dev_read_u32(dev, "mediatek,u3p-dis-msk", &mtk->u3p_dis_msk);
+	dev_read_u32(dev, "mediatek,u2p-dis-msk", &mtk->u2p_dis_msk);
+	dev_info(dev, "ports disabled mask: u3p-0x%x, u2p-0x%x\n",
+		 mtk->u3p_dis_msk, mtk->u2p_dis_msk);
 
 	return 0;
 }
@@ -258,6 +322,9 @@ static int xhci_mtk_probe(struct udevice *dev)
 	if (ret)
 		goto ssusb_init_err;
 
+	xhci_mtk_set_frame_interval(mtk);
+
+	mtk->ctrl.quirks = XHCI_MTK_HOST;
 	hcor = (struct xhci_hcor *)((uintptr_t)mtk->hcd +
 			HC_LENGTH(xhci_readl(&mtk->hcd->cr_capbase)));
 
@@ -287,6 +354,7 @@ static int xhci_mtk_remove(struct udevice *dev)
 
 static const struct udevice_id xhci_mtk_ids[] = {
 	{ .compatible = "mediatek,mtk-xhci" },
+	{ .compatible = "mediatek,mt8195-xhci" },
 	{ }
 };
 
@@ -298,6 +366,6 @@ U_BOOT_DRIVER(usb_xhci) = {
 	.remove = xhci_mtk_remove,
 	.ops = &xhci_usb_ops,
 	.bind = dm_scan_fdt_dev,
-	.priv_auto_alloc_size = sizeof(struct mtk_xhci),
+	.priv_auto	= sizeof(struct mtk_xhci),
 	.flags = DM_FLAG_ALLOC_PRIV_DMA,
 };

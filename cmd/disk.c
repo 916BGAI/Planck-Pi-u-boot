@@ -20,7 +20,7 @@ int common_diskboot(struct cmd_tbl *cmdtp, const char *intf, int argc,
 	ulong cnt;
 	struct disk_partition info;
 #if defined(CONFIG_LEGACY_IMAGE_FORMAT)
-	image_header_t *hdr;
+	struct legacy_img_hdr *hdr;
 #endif
 	struct blk_desc *dev_desc;
 
@@ -36,7 +36,7 @@ int common_diskboot(struct cmd_tbl *cmdtp, const char *intf, int argc,
 	bootstage_mark(BOOTSTAGE_ID_IDE_ADDR);
 
 	if (argc > 1)
-		addr = simple_strtoul(argv[1], NULL, 16);
+		addr = hextoul(argv[1], NULL);
 
 	bootstage_mark(BOOTSTAGE_ID_IDE_BOOT_DEVICE);
 
@@ -68,7 +68,7 @@ int common_diskboot(struct cmd_tbl *cmdtp, const char *intf, int argc,
 	switch (genimg_get_format((void *) addr)) {
 #if defined(CONFIG_LEGACY_IMAGE_FORMAT)
 	case IMAGE_FORMAT_LEGACY:
-		hdr = (image_header_t *) addr;
+		hdr = (struct legacy_img_hdr *)addr;
 
 		bootstage_mark(BOOTSTAGE_ID_IDE_FORMAT);
 
@@ -114,13 +114,12 @@ int common_diskboot(struct cmd_tbl *cmdtp, const char *intf, int argc,
 	/* This cannot be done earlier,
 	 * we need complete FIT image in RAM first */
 	if (genimg_get_format((void *) addr) == IMAGE_FORMAT_FIT) {
-		if (!fit_check_format(fit_hdr)) {
+		if (fit_check_format(fit_hdr, IMAGE_SIZE_INVAL)) {
 			bootstage_error(BOOTSTAGE_ID_IDE_FIT_READ);
 			puts("** Bad FIT image format\n");
 			return 1;
 		}
 		bootstage_mark(BOOTSTAGE_ID_IDE_FIT_READ_OK);
-		fit_print_contents(fit_hdr);
 	}
 #endif
 

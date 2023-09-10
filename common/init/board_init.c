@@ -9,6 +9,7 @@
 #include <common.h>
 #include <bootstage.h>
 #include <init.h>
+#include <asm/global_data.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -77,8 +78,10 @@ __weak void board_init_f_init_stack_protection(void)
 ulong board_init_f_alloc_reserve(ulong top)
 {
 	/* Reserve early malloc arena */
+#ifndef CFG_MALLOC_F_ADDR
 #if CONFIG_VAL(SYS_MALLOC_F_LEN)
 	top -= CONFIG_VAL(SYS_MALLOC_F_LEN);
+#endif
 #endif
 	/* LAST : reserve GD (rounded up to a multiple of 16 bytes) */
 	top = rounddown(top-sizeof(struct global_data), 16);
@@ -159,13 +162,18 @@ void board_init_f_init_reserve(ulong base)
 #if CONFIG_VAL(SYS_MALLOC_F_LEN)
 	/* go down one 'early malloc arena' */
 	gd->malloc_base = base;
+#if CONFIG_IS_ENABLED(ZERO_MEM_BEFORE_USE)
+	memset((void *)base, '\0', CONFIG_VAL(SYS_MALLOC_F_LEN));
+#endif
 #endif
 
 	if (CONFIG_IS_ENABLED(SYS_REPORT_STACK_F_USAGE))
 		board_init_f_init_stack_protection();
 }
 
+#if CONFIG_IS_ENABLED(SHOW_BOOT_PROGRESS)
 /*
  * Board-specific Platform code can reimplement show_boot_progress () if needed
  */
 __weak void show_boot_progress(int val) {}
+#endif

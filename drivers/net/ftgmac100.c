@@ -119,7 +119,7 @@ static int ftgmac100_mdio_read(struct mii_dev *bus, int phy_addr, int dev_addr,
 				 FTGMAC100_MDIO_TIMEOUT_USEC);
 	if (ret) {
 		pr_err("%s: mdio read failed (phy:%d reg:%x)\n",
-		       priv->phydev->dev->name, phy_addr, reg_addr);
+		       bus->name, phy_addr, reg_addr);
 		return ret;
 	}
 
@@ -151,7 +151,7 @@ static int ftgmac100_mdio_write(struct mii_dev *bus, int phy_addr, int dev_addr,
 				 FTGMAC100_MDIO_TIMEOUT_USEC);
 	if (ret) {
 		pr_err("%s: mdio write failed (phy:%d reg:%x)\n",
-		       priv->phydev->dev->name, phy_addr, reg_addr);
+		       bus->name, phy_addr, reg_addr);
 	}
 
 	return ret;
@@ -171,7 +171,7 @@ static int ftgmac100_mdio_init(struct udevice *dev)
 	bus->write = ftgmac100_mdio_write;
 	bus->priv  = priv;
 
-	ret = mdio_register_seq(bus, dev->seq);
+	ret = mdio_register_seq(bus, dev_seq(dev));
 	if (ret) {
 		free(bus);
 		return ret;
@@ -188,7 +188,7 @@ static int ftgmac100_phy_adjust_link(struct ftgmac100_data *priv)
 	struct phy_device *phydev = priv->phydev;
 	u32 maccr;
 
-	if (!phydev->link) {
+	if (!phydev->link && priv->phy_mode != PHY_INTERFACE_MODE_NCSI) {
 		dev_err(phydev->dev, "No link\n");
 		return -EREMOTEIO;
 	}
@@ -220,11 +220,16 @@ static int ftgmac100_phy_init(struct udevice *dev)
 	struct phy_device *phydev;
 	int ret;
 
-	phydev = phy_connect(priv->bus, priv->phy_addr, dev, priv->phy_mode);
+	if (IS_ENABLED(CONFIG_DM_MDIO))
+		phydev = dm_eth_phy_connect(dev);
+	else
+		phydev = phy_connect(priv->bus, priv->phy_addr, dev, priv->phy_mode);
+
 	if (!phydev)
 		return -ENODEV;
 
-	phydev->supported &= PHY_GBIT_FEATURES;
+	if (priv->phy_mode != PHY_INTERFACE_MODE_NCSI)
+		phydev->supported &= PHY_GBIT_FEATURES;
 	if (priv->max_speed) {
 		ret = phy_set_supported(phydev, priv->max_speed);
 		if (ret)
@@ -271,6 +276,28 @@ static int ftgmac100_set_mac(struct ftgmac100_data *priv,
 }
 
 /*
+ * Get MAC address
+ */
+static int ftgmac100_get_mac(struct ftgmac100_data *priv,
+				unsigned char *mac)
+{
+	struct ftgmac100 *ftgmac100 = priv->iobase;
+	unsigned int maddr = readl(&ftgmac100->mac_madr);
+	unsigned int laddr = readl(&ftgmac100->mac_ladr);
+
+	debug("%s(%x %x)\n", __func__, maddr, laddr);
+
+	mac[0] = (maddr >> 8) & 0xff;
+	mac[1] =  maddr & 0xff;
+	mac[2] = (laddr >> 24) & 0xff;
+	mac[3] = (laddr >> 16) & 0xff;
+	mac[4] = (laddr >> 8) & 0xff;
+	mac[5] =  laddr & 0xff;
+
+	return 0;
+}
+
+/*
  * disable transmitter, receiver
  */
 static void ftgmac100_stop(struct udevice *dev)
@@ -282,12 +309,13 @@ static void ftgmac100_stop(struct udevice *dev)
 
 	writel(0, &ftgmac100->maccr);
 
-	phy_shutdown(priv->phydev);
+	if (priv->phy_mode != PHY_INTERFACE_MODE_NCSI)
+		phy_shutdown(priv->phydev);
 }
 
 static int ftgmac100_start(struct udevice *dev)
 {
-	struct eth_pdata *plat = dev_get_platdata(dev);
+	struct eth_pdata *plat = dev_get_plat(dev);
 	struct ftgmac100_data *priv = dev_get_priv(dev);
 	struct ftgmac100 *ftgmac100 = priv->iobase;
 	struct phy_device *phydev = priv->phydev;
@@ -505,27 +533,30 @@ static int ftgmac100_send(struct udevice *dev, void *packet, int length)
 
 static int ftgmac100_write_hwaddr(struct udevice *dev)
 {
-	struct eth_pdata *pdata = dev_get_platdata(dev);
+	struct eth_pdata *pdata = dev_get_plat(dev);
 	struct ftgmac100_data *priv = dev_get_priv(dev);
 
 	return ftgmac100_set_mac(priv, pdata->enetaddr);
 }
 
-static int ftgmac100_ofdata_to_platdata(struct udevice *dev)
+static int ftgmac_read_hwaddr(struct udevice *dev)
 {
-	struct eth_pdata *pdata = dev_get_platdata(dev);
+	struct eth_pdata *pdata = dev_get_plat(dev);
 	struct ftgmac100_data *priv = dev_get_priv(dev);
-	const char *phy_mode;
 
-	pdata->iobase = devfdt_get_addr(dev);
-	pdata->phy_interface = -1;
-	phy_mode = dev_read_string(dev, "phy-mode");
-	if (phy_mode)
-		pdata->phy_interface = phy_get_interface_by_name(phy_mode);
-	if (pdata->phy_interface == -1) {
-		dev_err(dev, "Invalid PHY interface '%s'\n", phy_mode);
+	return ftgmac100_get_mac(priv, pdata->enetaddr);
+}
+
+static int ftgmac100_of_to_plat(struct udevice *dev)
+{
+	struct eth_pdata *pdata = dev_get_plat(dev);
+	struct ftgmac100_data *priv = dev_get_priv(dev);
+
+	pdata->iobase = dev_read_addr(dev);
+
+	pdata->phy_interface = dev_read_phy_mode(dev);
+	if (pdata->phy_interface == PHY_INTERFACE_MODE_NA)
 		return -EINVAL;
-	}
 
 	pdata->max_speed = dev_read_u32_default(dev, "max-speed", 0);
 
@@ -542,7 +573,7 @@ static int ftgmac100_ofdata_to_platdata(struct udevice *dev)
 
 static int ftgmac100_probe(struct udevice *dev)
 {
-	struct eth_pdata *pdata = dev_get_platdata(dev);
+	struct eth_pdata *pdata = dev_get_plat(dev);
 	struct ftgmac100_data *priv = dev_get_priv(dev);
 	int ret;
 
@@ -551,14 +582,28 @@ static int ftgmac100_probe(struct udevice *dev)
 	priv->max_speed = pdata->max_speed;
 	priv->phy_addr = 0;
 
+	if (dev_read_bool(dev, "use-ncsi"))
+		priv->phy_mode = PHY_INTERFACE_MODE_NCSI;
+
+#ifdef CONFIG_PHY_ADDR
+	priv->phy_addr = CONFIG_PHY_ADDR;
+#endif
+
 	ret = clk_enable_bulk(&priv->clks);
 	if (ret)
 		goto out;
 
-	ret = ftgmac100_mdio_init(dev);
-	if (ret) {
-		dev_err(dev, "Failed to initialize mdiobus: %d\n", ret);
-		goto out;
+	/*
+	 * If DM MDIO is enabled, the MDIO bus will be initialized later in
+	 * dm_eth_phy_connect
+	 */
+	if (priv->phy_mode != PHY_INTERFACE_MODE_NCSI &&
+	    !IS_ENABLED(CONFIG_DM_MDIO)) {
+		ret = ftgmac100_mdio_init(dev);
+		if (ret) {
+			dev_err(dev, "Failed to initialize mdiobus: %d\n", ret);
+			goto out;
+		}
 	}
 
 	ret = ftgmac100_phy_init(dev);
@@ -566,6 +611,8 @@ static int ftgmac100_probe(struct udevice *dev)
 		dev_err(dev, "Failed to initialize PHY: %d\n", ret);
 		goto out;
 	}
+
+	ftgmac_read_hwaddr(dev);
 
 out:
 	if (ret)
@@ -598,6 +645,7 @@ static const struct eth_ops ftgmac100_ops = {
 static const struct udevice_id ftgmac100_ids[] = {
 	{ .compatible = "faraday,ftgmac100",  .data = FTGMAC100_MODEL_FARADAY },
 	{ .compatible = "aspeed,ast2500-mac", .data = FTGMAC100_MODEL_ASPEED  },
+	{ .compatible = "aspeed,ast2600-mac", .data = FTGMAC100_MODEL_ASPEED  },
 	{ }
 };
 
@@ -605,11 +653,11 @@ U_BOOT_DRIVER(ftgmac100) = {
 	.name	= "ftgmac100",
 	.id	= UCLASS_ETH,
 	.of_match = ftgmac100_ids,
-	.ofdata_to_platdata = ftgmac100_ofdata_to_platdata,
+	.of_to_plat = ftgmac100_of_to_plat,
 	.probe	= ftgmac100_probe,
 	.remove = ftgmac100_remove,
 	.ops	= &ftgmac100_ops,
-	.priv_auto_alloc_size = sizeof(struct ftgmac100_data),
-	.platdata_auto_alloc_size = sizeof(struct eth_pdata),
+	.priv_auto	= sizeof(struct ftgmac100_data),
+	.plat_auto	= sizeof(struct eth_pdata),
 	.flags	= DM_FLAG_ALLOC_PRIV_DMA,
 };

@@ -9,6 +9,7 @@ config MESON64_COMMON
 	select SYSCON
 	select REGMAP
 	select PWRSEQ
+	select MMC_PWRSEQ
 	select BOARD_LATE_INIT
 	imply CMD_DM
 
@@ -50,6 +51,12 @@ config MESON_G12A
 	help
 	  Select this if your SoC is an S905X/D2
 
+config MESON_A1
+	bool "A1"
+	select MESON64_COMMON
+	help
+	  Select this if your SoC is an A113L
+
 endchoice
 
 config SYS_SOC
@@ -68,6 +75,7 @@ config SYS_VENDOR
 
 config SYS_BOARD
 	string "Board name"
+	default "ad401" if MESON_A1
 	default "p200" if MESON_GXBB
 	default "p212" if MESON_GXL
 	default "q200" if MESON_GXM

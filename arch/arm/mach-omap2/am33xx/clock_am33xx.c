@@ -220,16 +220,13 @@ void enable_basic_clocks(void)
 		&cmper->gpio2clkctrl,
 		&cmper->gpio3clkctrl,
 		&cmper->i2c1clkctrl,
+		&cmper->i2c2clkctrl,
 		&cmper->cpgmac0clkctrl,
 		&cmper->spi0clkctrl,
 		&cmrtc->rtcclkctrl,
 		&cmper->usb0clkctrl,
 		&cmper->emiffwclkctrl,
 		&cmper->emifclkctrl,
-#if CONFIG_IS_ENABLED(AM335X_LCD)
-		&cmper->lcdclkctrl,
-		&cmper->lcdcclkstctrl,
-#endif
 		0
 	};
 

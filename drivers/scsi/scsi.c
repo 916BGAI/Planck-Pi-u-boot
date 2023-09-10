@@ -4,11 +4,15 @@
  * Denis Peter, MPL AG Switzerland
  */
 
+#define LOG_CATEGORY	UCLASS_SCSI
+
 #include <common.h>
 #include <blk.h>
+#include <bootdev.h>
 #include <bootstage.h>
 #include <dm.h>
 #include <env.h>
+#include <libata.h>
 #include <log.h>
 #include <part.h>
 #include <pci.h>
@@ -17,8 +21,8 @@
 #include <dm/uclass-internal.h>
 
 #if !defined(CONFIG_DM_SCSI)
-# ifdef CONFIG_SCSI_DEV_LIST
-#  define SCSI_DEV_LIST CONFIG_SCSI_DEV_LIST
+# ifdef CFG_SCSI_DEV_LIST
+#  define SCSI_DEV_LIST CFG_SCSI_DEV_LIST
 # else
 #  ifdef CONFIG_SATA_ULI5288
 
@@ -45,7 +49,7 @@ static int scsi_max_devs; /* number of highest available scsi device */
 
 static int scsi_curr_dev; /* current device */
 
-static struct blk_desc scsi_dev_desc[CONFIG_SYS_SCSI_MAX_DEVICE];
+static struct blk_desc scsi_dev_desc[SCSI_MAX_DEVICE];
 #endif
 
 /* almost the maximum amount of the scsi_ext command.. */
@@ -149,9 +153,9 @@ static void scsi_setup_write_ext(struct scsi_cmd *pccb, lbaint_t start,
 static ulong scsi_read(struct udevice *dev, lbaint_t blknr, lbaint_t blkcnt,
 		       void *buffer)
 {
-	struct blk_desc *block_dev = dev_get_uclass_platdata(dev);
+	struct blk_desc *block_dev = dev_get_uclass_plat(dev);
 	struct udevice *bdev = dev->parent;
-	struct scsi_platdata *uc_plat = dev_get_uclass_platdata(bdev);
+	struct scsi_plat *uc_plat = dev_get_uclass_plat(bdev);
 	lbaint_t start, blks, max_blks;
 	uintptr_t buf_addr;
 	unsigned short smallblks = 0;
@@ -219,9 +223,9 @@ static ulong scsi_read(struct udevice *dev, lbaint_t blknr, lbaint_t blkcnt,
 static ulong scsi_write(struct udevice *dev, lbaint_t blknr, lbaint_t blkcnt,
 			const void *buffer)
 {
-	struct blk_desc *block_dev = dev_get_uclass_platdata(dev);
+	struct blk_desc *block_dev = dev_get_uclass_plat(dev);
 	struct udevice *bdev = dev->parent;
-	struct scsi_platdata *uc_plat = dev_get_uclass_platdata(bdev);
+	struct scsi_plat *uc_plat = dev_get_uclass_plat(bdev);
 	lbaint_t start, blks, max_blks;
 	uintptr_t buf_addr;
 	unsigned short smallblks;
@@ -283,7 +287,6 @@ void scsi_init(void)
 	 */
 	for (i = 0; i < ARRAY_SIZE(scsi_device_list); i++) {
 		/* get PCI Device ID */
-#ifdef CONFIG_DM_PCI
 		struct udevice *dev;
 		int ret;
 
@@ -293,11 +296,6 @@ void scsi_init(void)
 			busdevfunc = dm_pci_get_bdf(dev);
 			break;
 		}
-#else
-		busdevfunc = pci_find_device(scsi_device_list[i].vendor,
-					     scsi_device_list[i].device,
-					     0);
-#endif
 		if (busdevfunc != -1)
 			break;
 	}
@@ -461,7 +459,7 @@ static void scsi_init_dev_desc(struct blk_desc *dev_desc, int devnum)
 {
 	dev_desc->lba = 0;
 	dev_desc->blksz = 0;
-	dev_desc->if_type = IF_TYPE_SCSI;
+	dev_desc->uclass_id = UCLASS_SCSI;
 	dev_desc->devnum = devnum;
 	dev_desc->part_type = PART_TYPE_UNKNOWN;
 
@@ -563,7 +561,7 @@ static int do_scsi_scan_one(struct udevice *dev, int id, int lun, bool verbose)
 	struct udevice *bdev;
 	struct blk_desc bd;
 	struct blk_desc *bdesc;
-	char str[10];
+	char str[10], *name;
 
 	/*
 	 * detect the scsi driver to get information about its geometry (block
@@ -579,14 +577,18 @@ static int do_scsi_scan_one(struct udevice *dev, int id, int lun, bool verbose)
 	* block devices created
 	*/
 	snprintf(str, sizeof(str), "id%dlun%d", id, lun);
-	ret = blk_create_devicef(dev, "scsi_blk", str, IF_TYPE_SCSI, -1,
-			bd.blksz, bd.lba, &bdev);
+	name = strdup(str);
+	if (!name)
+		return log_msg_ret("nam", -ENOMEM);
+	ret = blk_create_devicef(dev, "scsi_blk", name, UCLASS_SCSI, -1,
+				 bd.blksz, bd.lba, &bdev);
 	if (ret) {
 		debug("Can't create device\n");
 		return ret;
 	}
+	device_set_name_alloced(bdev);
 
-	bdesc = dev_get_uclass_platdata(bdev);
+	bdesc = dev_get_uclass_plat(bdev);
 	bdesc->target = id;
 	bdesc->lun = lun;
 	bdesc->removable = bd.removable;
@@ -594,6 +596,20 @@ static int do_scsi_scan_one(struct udevice *dev, int id, int lun, bool verbose)
 	memcpy(&bdesc->vendor, &bd.vendor, sizeof(bd.vendor));
 	memcpy(&bdesc->product, &bd.product, sizeof(bd.product));
 	memcpy(&bdesc->revision, &bd.revision,	sizeof(bd.revision));
+	if (IS_ENABLED(CONFIG_SYS_BIG_ENDIAN)) {
+		ata_swap_buf_le16((u16 *)&bdesc->vendor, sizeof(bd.vendor) / 2);
+		ata_swap_buf_le16((u16 *)&bdesc->product, sizeof(bd.product) / 2);
+		ata_swap_buf_le16((u16 *)&bdesc->revision, sizeof(bd.revision) / 2);
+	}
+
+	ret = blk_probe_or_unbind(bdev);
+	if (ret < 0)
+		/* TODO: undo create */
+		return log_msg_ret("pro", ret);
+
+	ret = bootdev_setup_for_sibling_blk(bdev, "scsi_bootdev");
+	if (ret)
+		return log_msg_ret("bd", ret);
 
 	if (verbose) {
 		printf("  Device %d: ", bdesc->devnum);
@@ -604,7 +620,7 @@ static int do_scsi_scan_one(struct udevice *dev, int id, int lun, bool verbose)
 
 int scsi_scan_dev(struct udevice *dev, bool verbose)
 {
-	struct scsi_platdata *uc_plat; /* scsi controller platdata */
+	struct scsi_plat *uc_plat; /* scsi controller plat */
 	int ret;
 	int i;
 	int lun;
@@ -614,8 +630,8 @@ int scsi_scan_dev(struct udevice *dev, bool verbose)
 	if (ret)
 		return ret;
 
-	/* Get controller platdata */
-	uc_plat = dev_get_uclass_platdata(dev);
+	/* Get controller plat */
+	uc_plat = dev_get_uclass_plat(dev);
 
 	for (i = 0; i < uc_plat->max_id; i++)
 		for (lun = 0; lun < uc_plat->max_lun; lun++)
@@ -633,11 +649,22 @@ int scsi_scan(bool verbose)
 	if (verbose)
 		printf("scanning bus for devices...\n");
 
-	blk_unbind_all(IF_TYPE_SCSI);
-
 	ret = uclass_get(UCLASS_SCSI, &uc);
 	if (ret)
 		return ret;
+
+	/* remove all children of the SCSI devices */
+	uclass_foreach_dev(dev, uc) {
+		log_debug("unbind %s\n", dev->name);
+		ret = device_chld_remove(dev, NULL, DM_REMOVE_NORMAL);
+		if (!ret)
+			ret = device_chld_unbind(dev, NULL);
+		if (ret) {
+			if (verbose)
+				printf("unable to unbind devices (%dE)\n", ret);
+			return log_msg_ret("unb", ret);
+		}
+	}
 
 	uclass_foreach_dev(dev, uc) {
 		ret = scsi_scan_dev(dev, verbose);
@@ -655,7 +682,7 @@ int scsi_scan(bool verbose)
 
 	if (verbose)
 		printf("scanning bus for devices...\n");
-	for (i = 0; i < CONFIG_SYS_SCSI_MAX_DEVICE; i++)
+	for (i = 0; i < SCSI_MAX_DEVICE; i++)
 		scsi_init_dev_desc(&scsi_dev_desc[i], i);
 
 	scsi_max_devs = 0;
@@ -701,9 +728,9 @@ U_BOOT_DRIVER(scsi_blk) = {
 };
 #else
 U_BOOT_LEGACY_BLK(scsi) = {
-	.if_typename	= "scsi",
-	.if_type	= IF_TYPE_SCSI,
-	.max_devs	= CONFIG_SYS_SCSI_MAX_DEVICE,
+	.uclass_idname	= "scsi",
+	.uclass_id	= UCLASS_SCSI,
+	.max_devs	= SCSI_MAX_DEVICE,
 	.desc		= scsi_dev_desc,
 };
 #endif

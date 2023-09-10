@@ -74,8 +74,8 @@ static int ums_init(const char *devtype, const char *devnums_part_str)
 		if (!devnum_part_str)
 			break;
 
-		partnum = blk_get_device_part_str(devtype, devnum_part_str,
-					&block_dev, &info, 1);
+		partnum = part_get_info_by_dev_and_name_or_num(devtype, devnum_part_str,
+							       &block_dev, &info, 1);
 
 		if (partnum < 0)
 			goto cleanup;
@@ -115,8 +115,8 @@ static int ums_init(const char *devtype, const char *devnums_part_str)
 		ums[ums_count].name = name;
 		ums[ums_count].block_dev = *block_dev;
 
-		printf("UMS: LUN %d, dev %d, hwpart %d, sector %#x, count %#x\n",
-		       ums_count, ums[ums_count].block_dev.devnum,
+		printf("UMS: LUN %d, dev %s %d, hwpart %d, sector %#x, count %#x\n",
+		       ums_count, devtype, ums[ums_count].block_dev.devnum,
 		       ums[ums_count].block_dev.hwpart,
 		       ums[ums_count].start_sector,
 		       ums[ums_count].num_sectors);
@@ -170,7 +170,7 @@ static int do_usb_mass_storage(struct cmd_tbl *cmdtp, int flag,
 		goto cleanup_ums_init;
 	}
 
-	rc = fsg_init(ums, ums_count);
+	rc = fsg_init(ums, ums_count, controller_index);
 	if (rc) {
 		pr_err("fsg_init failed\n");
 		rc = CMD_RET_FAILURE;
@@ -231,7 +231,17 @@ static int do_usb_mass_storage(struct cmd_tbl *cmdtp, int flag,
 			goto cleanup_register;
 		}
 
-		WATCHDOG_RESET();
+		if (IS_ENABLED(CONFIG_CMD_UMS_ABORT_KEYED)) {
+			/* Abort by pressing any key */
+			if (tstc()) {
+				getchar();
+				printf("\rOperation aborted.\n");
+				rc = CMD_RET_SUCCESS;
+				goto cleanup_register;
+			}
+		}
+
+		schedule();
 	}
 
 cleanup_register:

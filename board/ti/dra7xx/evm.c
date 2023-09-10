@@ -12,19 +12,19 @@
 #include <common.h>
 #include <env.h>
 #include <fdt_support.h>
-#include <image.h>
+#include <fastboot.h>
 #include <init.h>
 #include <spl.h>
 #include <net.h>
 #include <palmas.h>
 #include <sata.h>
 #include <serial.h>
+#include <asm/global_data.h>
 #include <linux/string.h>
 #include <asm/gpio.h>
 #include <usb.h>
 #include <linux/usb/gadget.h>
 #include <asm/omap_common.h>
-#include <asm/omap_sec_common.h>
 #include <asm/arch/gpio.h>
 #include <asm/arch/dra7xx_iodelay.h>
 #include <asm/emif.h>
@@ -277,13 +277,13 @@ void emif_get_reg_dump(u32 emif_nr, const struct emif_regs **regs)
 	case DRA752_ES2_0:
 		switch (emif_nr) {
 		case 1:
-			if (ram_size > CONFIG_MAX_MEM_MAPPED)
+			if (ram_size > CFG_MAX_MEM_MAPPED)
 				*regs = &emif1_ddr3_532_mhz_1cs_2G;
 			else
 				*regs = &emif1_ddr3_532_mhz_1cs;
 			break;
 		case 2:
-			if (ram_size > CONFIG_MAX_MEM_MAPPED)
+			if (ram_size > CFG_MAX_MEM_MAPPED)
 				*regs = &emif2_ddr3_532_mhz_1cs_2G;
 			else
 				*regs = &emif2_ddr3_532_mhz_1cs;
@@ -301,7 +301,7 @@ void emif_get_reg_dump(u32 emif_nr, const struct emif_regs **regs)
 	case DRA722_ES1_0:
 	case DRA722_ES2_0:
 	case DRA722_ES2_1:
-		if (ram_size < CONFIG_MAX_MEM_MAPPED)
+		if (ram_size < CFG_MAX_MEM_MAPPED)
 			*regs = &emif_1_regs_ddr3_666_mhz_1cs_dra_es1;
 		else
 			*regs = &emif_1_regs_ddr3_666_mhz_1cs_dra_es2;
@@ -360,7 +360,7 @@ void emif_get_dmm_regs(const struct dmm_lisa_map_regs **dmm_lisa_regs)
 	case DRA752_ES1_0:
 	case DRA752_ES1_1:
 	case DRA752_ES2_0:
-		if (ram_size > CONFIG_MAX_MEM_MAPPED)
+		if (ram_size > CFG_MAX_MEM_MAPPED)
 			*dmm_lisa_regs = &lisa_map_dra7_2GB;
 		else
 			*dmm_lisa_regs = &lisa_map_dra7_1536MB;
@@ -369,7 +369,7 @@ void emif_get_dmm_regs(const struct dmm_lisa_map_regs **dmm_lisa_regs)
 	case DRA722_ES2_0:
 	case DRA722_ES2_1:
 	default:
-		if (ram_size < CONFIG_MAX_MEM_MAPPED)
+		if (ram_size < CFG_MAX_MEM_MAPPED)
 			*dmm_lisa_regs = &lisa_map_2G_x_2;
 		else
 			*dmm_lisa_regs = &lisa_map_2G_x_4;
@@ -626,7 +626,7 @@ int get_voltrail_opp(int rail_offset)
 /**
  * @brief board_init
  *
- * @return 0
+ * Return: 0
  */
 int board_init(void)
 {
@@ -642,11 +642,11 @@ int dram_init_banksize(void)
 
 	ram_size = board_ti_get_emif_size();
 
-	gd->bd->bi_dram[0].start = CONFIG_SYS_SDRAM_BASE;
+	gd->bd->bi_dram[0].start = CFG_SYS_SDRAM_BASE;
 	gd->bd->bi_dram[0].size = get_effective_memsize();
-	if (ram_size > CONFIG_MAX_MEM_MAPPED) {
+	if (ram_size > CFG_MAX_MEM_MAPPED) {
 		gd->bd->bi_dram[1].start = 0x200000000;
-		gd->bd->bi_dram[1].size = ram_size - CONFIG_MAX_MEM_MAPPED;
+		gd->bd->bi_dram[1].size = ram_size - CFG_MAX_MEM_MAPPED;
 	}
 
 	return 0;
@@ -920,7 +920,7 @@ err:
 #endif
 
 #if defined(CONFIG_MMC)
-int board_mmc_init(bd_t *bis)
+int board_mmc_init(struct bd_info *bis)
 {
 	omap_mmc_init(0, 0, 0, -1, -1);
 	omap_mmc_init(1, 0, 0, -1, -1);
@@ -1017,7 +1017,7 @@ int board_early_init_f(void)
 #endif
 
 #if defined(CONFIG_OF_LIBFDT) && defined(CONFIG_OF_BOARD_SETUP)
-int ft_board_setup(void *blob, bd_t *bd)
+int ft_board_setup(void *blob, struct bd_info *bd)
 {
 	ft_cpu_setup(blob, bd);
 
@@ -1049,26 +1049,15 @@ int board_fit_config_name_match(const char *name)
 }
 #endif
 
-#if CONFIG_IS_ENABLED(FASTBOOT) && !CONFIG_IS_ENABLED(ENV_IS_NOWHERE)
-int fastboot_set_reboot_flag(void)
+#if IS_ENABLED(CONFIG_FASTBOOT) && !CONFIG_IS_ENABLED(ENV_IS_NOWHERE)
+int fastboot_set_reboot_flag(enum fastboot_reboot_reason reason)
 {
+	if (reason != FASTBOOT_REBOOT_REASON_BOOTLOADER)
+		return -ENOTSUPP;
+
 	printf("Setting reboot to fastboot flag ...\n");
 	env_set("dofastboot", "1");
 	env_save();
 	return 0;
 }
-#endif
-
-#ifdef CONFIG_TI_SECURE_DEVICE
-void board_fit_image_post_process(void **p_image, size_t *p_size)
-{
-	secure_boot_verify_image(p_image, p_size);
-}
-
-void board_tee_image_process(ulong tee_image, size_t tee_size)
-{
-	secure_tee_install((u32)tee_image);
-}
-
-U_BOOT_FIT_LOADABLE_HANDLER(IH_TYPE_TEE, board_tee_image_process);
 #endif

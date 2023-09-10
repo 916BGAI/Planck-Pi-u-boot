@@ -15,6 +15,8 @@
 # include <asm/arch-rockchip/cru_rk3288.h>
 #elif defined(CONFIG_ROCKCHIP_RK3399)
 # include <asm/arch-rockchip/cru_rk3399.h>
+#elif defined(CONFIG_ROCKCHIP_RK3568)
+#include <asm/arch-rockchip/cru_rk3568.h>
 #endif
 
 /* CRU_GLB_RST_ST */
@@ -26,9 +28,10 @@ enum {
 	SND_GLB_TSADC_RST_ST	= BIT(3),
 	FST_GLB_WDT_RST_ST	= BIT(4),
 	SND_GLB_WDT_RST_ST	= BIT(5),
-	GLB_RST_ST_MASK		= GENMASK(5, 0),
 };
 
 #define MHz		1000000
+
+char *get_reset_cause(void);
 
 #endif /* _ROCKCHIP_CLOCK_H */

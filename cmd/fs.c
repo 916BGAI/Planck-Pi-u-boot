@@ -20,7 +20,7 @@ U_BOOT_CMD(
 	"determine a file's size",
 	"<interface> <dev[:part]> <filename>\n"
 	"    - Find file 'filename' from 'dev' on 'interface'\n"
-	"      and determine its size."
+	"      determine its size, and store in the 'filesize' variable."
 );
 
 static int do_load_wrapper(struct cmd_tbl *cmdtp, int flag, int argc,
@@ -99,4 +99,15 @@ U_BOOT_CMD(
 	"- print filesystem type\n"
 	"fstype <interface> <dev>:<part> <varname>\n"
 	"- set environment variable to filesystem type\n"
+);
+
+static int do_fstypes_wrapper(struct cmd_tbl *cmdtp, int flag, int argc,
+			      char * const argv[])
+{
+	return do_fs_types(cmdtp, flag, argc, argv);
+}
+
+U_BOOT_CMD(
+	fstypes, 1, 1, do_fstypes_wrapper,
+	"List supported filesystem types", ""
 );

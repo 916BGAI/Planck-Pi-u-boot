@@ -6,5 +6,5 @@ Renesas
 .. toctree::
    :maxdepth: 2
 
-   sh7752evb
-   sh7753evb
+   renesas
+   rzn1

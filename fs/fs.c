@@ -3,25 +3,34 @@
  * Copyright (c) 2012, NVIDIA CORPORATION.  All rights reserved.
  */
 
+#define LOG_CATEGORY LOGC_CORE
+
 #include <command.h>
 #include <config.h>
+#include <display_options.h>
 #include <errno.h>
 #include <common.h>
 #include <env.h>
 #include <lmb.h>
 #include <log.h>
+#include <malloc.h>
 #include <mapmem.h>
 #include <part.h>
 #include <ext4fs.h>
 #include <fat.h>
 #include <fs.h>
 #include <sandboxfs.h>
+#include <semihostingfs.h>
 #include <ubifs_uboot.h>
 #include <btrfs.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
 #include <div64.h>
 #include <linux/math64.h>
+#include <linux/sizes.h>
 #include <efi_loader.h>
+#include <squashfs.h>
+#include <erofs.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -30,10 +39,15 @@ static int fs_dev_part;
 static struct disk_partition fs_partition;
 static int fs_type = FS_TYPE_ANY;
 
+void fs_set_type(int type)
+{
+	fs_type = type;
+}
+
 static inline int fs_probe_unsupported(struct blk_desc *fs_dev_desc,
 				      struct disk_partition *fs_partition)
 {
-	printf("** Unrecognized filesystem type **\n");
+	log_debug("Unrecognized filesystem type\n");
 	return -1;
 }
 
@@ -58,6 +72,9 @@ static int fs_ls_generic(const char *dirname)
 		if (dent->type == FS_DT_DIR) {
 			printf("            %s/\n", dent->name);
 			ndirs++;
+		} else if (dent->type == FS_DT_LNK) {
+			printf("    <SYM>   %s\n", dent->name);
+			nfiles++;
 		} else {
 			printf(" %8lld   %s\n", dent->size, dent->name);
 			nfiles++;
@@ -168,7 +185,7 @@ struct fstype_info {
 };
 
 static struct fstype_info fstypes[] = {
-#ifdef CONFIG_FS_FAT
+#if CONFIG_IS_ENABLED(FS_FAT)
 	{
 		.fstype = FS_TYPE_FAT,
 		.name = "fat",
@@ -188,7 +205,7 @@ static struct fstype_info fstypes[] = {
 		.unlink = fs_unlink_unsupported,
 		.mkdir = fs_mkdir_unsupported,
 #endif
-		.uuid = fs_uuid_unsupported,
+		.uuid = fat_uuid,
 		.opendir = fat_opendir,
 		.readdir = fat_readdir,
 		.closedir = fat_closedir,
@@ -239,6 +256,26 @@ static struct fstype_info fstypes[] = {
 		.ln = fs_ln_unsupported,
 	},
 #endif
+#ifdef CONFIG_SEMIHOSTING
+	{
+		.fstype = FS_TYPE_SEMIHOSTING,
+		.name = "semihosting",
+		.null_dev_desc_ok = true,
+		.probe = smh_fs_set_blk_dev,
+		.close = fs_close_unsupported,
+		.ls = fs_ls_unsupported,
+		.exists = fs_exists_unsupported,
+		.size = smh_fs_size,
+		.read = smh_fs_read,
+		.write = smh_fs_write,
+		.uuid = fs_uuid_unsupported,
+		.opendir = fs_opendir_unsupported,
+		.unlink = fs_unlink_unsupported,
+		.mkdir = fs_mkdir_unsupported,
+		.ln = fs_ln_unsupported,
+	},
+#endif
+#ifndef CONFIG_SPL_BUILD
 #ifdef CONFIG_CMD_UBIFS
 	{
 		.fstype = FS_TYPE_UBIFS,
@@ -258,6 +295,8 @@ static struct fstype_info fstypes[] = {
 		.ln = fs_ln_unsupported,
 	},
 #endif
+#endif
+#ifndef CONFIG_SPL_BUILD
 #ifdef CONFIG_FS_BTRFS
 	{
 		.fstype = FS_TYPE_BTRFS,
@@ -275,6 +314,49 @@ static struct fstype_info fstypes[] = {
 		.unlink = fs_unlink_unsupported,
 		.mkdir = fs_mkdir_unsupported,
 		.ln = fs_ln_unsupported,
+	},
+#endif
+#endif
+#if CONFIG_IS_ENABLED(FS_SQUASHFS)
+	{
+		.fstype = FS_TYPE_SQUASHFS,
+		.name = "squashfs",
+		.null_dev_desc_ok = false,
+		.probe = sqfs_probe,
+		.opendir = sqfs_opendir,
+		.readdir = sqfs_readdir,
+		.ls = fs_ls_generic,
+		.read = sqfs_read,
+		.size = sqfs_size,
+		.close = sqfs_close,
+		.closedir = sqfs_closedir,
+		.exists = sqfs_exists,
+		.uuid = fs_uuid_unsupported,
+		.write = fs_write_unsupported,
+		.ln = fs_ln_unsupported,
+		.unlink = fs_unlink_unsupported,
+		.mkdir = fs_mkdir_unsupported,
+	},
+#endif
+#if IS_ENABLED(CONFIG_FS_EROFS)
+	{
+		.fstype = FS_TYPE_EROFS,
+		.name = "erofs",
+		.null_dev_desc_ok = false,
+		.probe = erofs_probe,
+		.opendir = erofs_opendir,
+		.readdir = erofs_readdir,
+		.ls = fs_ls_generic,
+		.read = erofs_read,
+		.size = erofs_size,
+		.close = erofs_close,
+		.closedir = erofs_closedir,
+		.exists = erofs_exists,
+		.uuid = fs_uuid_unsupported,
+		.write = fs_write_unsupported,
+		.ln = fs_ln_unsupported,
+		.unlink = fs_unlink_unsupported,
+		.mkdir = fs_mkdir_unsupported,
 	},
 #endif
 	{
@@ -357,8 +439,8 @@ int fs_set_blk_dev(const char *ifname, const char *dev_part_str, int fstype)
 	}
 #endif
 
-	part = blk_get_device_part_str(ifname, dev_part_str, &fs_dev_desc,
-					&fs_partition, 1);
+	part = part_get_info_by_dev_and_name_or_num(ifname, dev_part_str, &fs_dev_desc,
+						    &fs_partition, 1);
 	if (part < 0)
 		return -1;
 
@@ -490,7 +572,7 @@ static int fs_read_lmb_check(const char *filename, ulong addr, loff_t offset,
 	if (lmb_alloc_addr(&lmb, addr, read_len) == addr)
 		return 0;
 
-	printf("** Reading file would overwrite reserved memory **\n");
+	log_err("** Reading file would overwrite reserved memory **\n");
 	return -ENOSPC;
 }
 #endif
@@ -520,7 +602,7 @@ static int _fs_read(const char *filename, ulong addr, loff_t offset, loff_t len,
 
 	/* If we requested a specific number of bytes, check we got it */
 	if (ret == 0 && len && *actread != len)
-		debug("** %s shorter than offset + len **\n", filename);
+		log_debug("** %s shorter than offset + len **\n", filename);
 	fs_close();
 
 	return ret;
@@ -544,7 +626,7 @@ int fs_write(const char *filename, ulong addr, loff_t offset, loff_t len,
 	unmap_sysmem(buf);
 
 	if (ret < 0 && len != *actwrite) {
-		printf("** Unable to write file %s **\n", filename);
+		log_err("** Unable to write file %s **\n", filename);
 		ret = -1;
 	}
 	fs_close();
@@ -638,7 +720,7 @@ int fs_ln(const char *fname, const char *target)
 	ret = info->ln(fname, target);
 
 	if (ret < 0) {
-		printf("** Unable to create link %s -> %s **\n", fname, target);
+		log_err("** Unable to create link %s -> %s **\n", fname, target);
 		ret = -1;
 	}
 	fs_close();
@@ -683,17 +765,19 @@ int do_load(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[],
 	if (argc > 7)
 		return CMD_RET_USAGE;
 
-	if (fs_set_blk_dev(argv[1], (argc >= 3) ? argv[2] : NULL, fstype))
+	if (fs_set_blk_dev(argv[1], (argc >= 3) ? argv[2] : NULL, fstype)) {
+		log_err("Can't set block device\n");
 		return 1;
+	}
 
 	if (argc >= 4) {
-		addr = simple_strtoul(argv[3], &ep, 16);
+		addr = hextoul(argv[3], &ep);
 		if (ep == argv[3] || *ep != '\0')
 			return CMD_RET_USAGE;
 	} else {
 		addr_str = env_get("loadaddr");
 		if (addr_str != NULL)
-			addr = simple_strtoul(addr_str, NULL, 16);
+			addr = hextoul(addr_str, NULL);
 		else
 			addr = CONFIG_SYS_LOAD_ADDR;
 	}
@@ -707,23 +791,26 @@ int do_load(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[],
 		}
 	}
 	if (argc >= 6)
-		bytes = simple_strtoul(argv[5], NULL, 16);
+		bytes = hextoul(argv[5], NULL);
 	else
 		bytes = 0;
 	if (argc >= 7)
-		pos = simple_strtoul(argv[6], NULL, 16);
+		pos = hextoul(argv[6], NULL);
 	else
 		pos = 0;
 
-#ifdef CONFIG_CMD_BOOTEFI
-	efi_set_bootdev(argv[1], (argc > 2) ? argv[2] : "",
-			(argc > 4) ? argv[4] : "");
-#endif
 	time = get_timer(0);
 	ret = _fs_read(filename, addr, pos, bytes, 1, &len_read);
 	time = get_timer(time);
-	if (ret < 0)
+	if (ret < 0) {
+		log_err("Failed to load '%s'\n", filename);
 		return 1;
+	}
+
+	if (IS_ENABLED(CONFIG_CMD_BOOTEFI))
+		efi_set_bootdev(argv[1], (argc > 2) ? argv[2] : "",
+				(argc > 4) ? argv[4] : "", map_sysmem(addr, 0),
+				len_read);
 
 	printf("%llu bytes read in %lu ms", len_read, time);
 	if (time > 0) {
@@ -782,11 +869,11 @@ int do_save(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[],
 	if (fs_set_blk_dev(argv[1], argv[2], fstype))
 		return 1;
 
-	addr = simple_strtoul(argv[3], NULL, 16);
+	addr = hextoul(argv[3], NULL);
 	filename = argv[4];
-	bytes = simple_strtoul(argv[5], NULL, 16);
+	bytes = hextoul(argv[5], NULL);
 	if (argc >= 7)
-		pos = simple_strtoul(argv[6], NULL, 16);
+		pos = hextoul(argv[6], NULL);
 	else
 		pos = 0;
 
@@ -882,7 +969,7 @@ int do_mkdir(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[],
 
 	ret = fs_mkdir(argv[3]);
 	if (ret) {
-		printf("** Unable to create a directory \"%s\" **\n", argv[3]);
+		log_err("** Unable to create a directory \"%s\" **\n", argv[3]);
 		return 1;
 	}
 
@@ -900,6 +987,82 @@ int do_ln(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[],
 
 	if (fs_ln(argv[3], argv[4]))
 		return 1;
+
+	return 0;
+}
+
+int do_fs_types(struct cmd_tbl *cmdtp, int flag, int argc, char * const argv[])
+{
+	struct fstype_info *drv = fstypes;
+	const int n_ents = ARRAY_SIZE(fstypes);
+	struct fstype_info *entry;
+	int i = 0;
+
+	puts("Supported filesystems");
+	for (entry = drv; entry != drv + n_ents; entry++) {
+		if (entry->fstype != FS_TYPE_ANY) {
+			printf("%c %s", i ? ',' : ':', entry->name);
+			i++;
+		}
+	}
+	if (!i)
+		puts(": <none>");
+	puts("\n");
+	return CMD_RET_SUCCESS;
+}
+
+int fs_read_alloc(const char *fname, ulong size, uint align, void **bufp)
+{
+	loff_t bytes_read;
+	ulong addr;
+	char *buf;
+	int ret;
+
+	buf = memalign(align, size + 1);
+	if (!buf)
+		return log_msg_ret("buf", -ENOMEM);
+	addr = map_to_sysmem(buf);
+
+	ret = fs_read(fname, addr, 0, size, &bytes_read);
+	if (ret) {
+		free(buf);
+		return log_msg_ret("read", ret);
+	}
+	if (size != bytes_read)
+		return log_msg_ret("bread", -EIO);
+	buf[size] = '\0';
+
+	*bufp = buf;
+
+	return 0;
+}
+
+int fs_load_alloc(const char *ifname, const char *dev_part_str,
+		  const char *fname, ulong max_size, ulong align, void **bufp,
+		  ulong *sizep)
+{
+	loff_t size;
+	void *buf;
+	int ret;
+
+	if (fs_set_blk_dev(ifname, dev_part_str, FS_TYPE_ANY))
+		return log_msg_ret("set", -ENOMEDIUM);
+
+	ret = fs_size(fname, &size);
+	if (ret)
+		return log_msg_ret("sz", -ENOENT);
+
+	if (size >= (max_size ?: SZ_1G))
+		return log_msg_ret("sz", -E2BIG);
+
+	if (fs_set_blk_dev(ifname, dev_part_str, FS_TYPE_ANY))
+		return log_msg_ret("set", -ENOMEDIUM);
+
+	ret = fs_read_alloc(fname, size, align, &buf);
+	if (ret)
+		return log_msg_ret("al", ret);
+	*sizep = size;
+	*bufp = buf;
 
 	return 0;
 }

@@ -12,6 +12,7 @@
 #include <log.h>
 #include <ns16550.h>
 #include <usb.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
 #include <asm/arch-tegra/ap.h>
 #include <asm/arch-tegra/board.h>
@@ -42,7 +43,7 @@ DECLARE_GLOBAL_DATA_PTR;
 
 #ifdef CONFIG_SPL_BUILD
 /* TODO(sjg@chromium.org): Remove once SPL supports device tree */
-U_BOOT_DEVICE(tegra_gpios) = {
+U_BOOT_DRVINFO(tegra_gpios) = {
 	"gpio_tegra"
 };
 #endif
@@ -55,6 +56,7 @@ __weak void gpio_early_init_uart(void) {}
 __weak void pin_mux_display(void) {}
 __weak void start_cpu_fan(void) {}
 __weak void cboot_late_init(void) {}
+__weak void nvidia_board_late_init(void) {}
 
 #if defined(CONFIG_TEGRA_NAND)
 __weak void pin_mux_nand(void)
@@ -88,7 +90,7 @@ int checkboard(void)
 {
 	int board_id = tegra_board_id();
 
-	printf("Board: %s", CONFIG_TEGRA_BOARD_STRING);
+	printf("Board: %s", CFG_TEGRA_BOARD_STRING);
 	if (board_id != -1)
 		printf(", ID: %d\n", board_id);
 	printf("\n");
@@ -133,7 +135,7 @@ int board_init(void)
 #endif
 
 	/* Init is handled automatically in the driver-model case */
-#if defined(CONFIG_DM_VIDEO)
+#if defined(CONFIG_VIDEO)
 	pin_mux_display();
 #endif
 	/* boot param addr */
@@ -157,7 +159,7 @@ int board_init(void)
 	pin_mux_usb();
 #endif
 
-#if defined(CONFIG_DM_VIDEO)
+#if defined(CONFIG_VIDEO)
 	board_id = tegra_board_id();
 	err = tegra_lcd_pmic_init(board_id);
 	if (err) {
@@ -266,6 +268,7 @@ int board_late_init(void)
 #endif
 	start_cpu_fan();
 	cboot_late_init();
+	nvidia_board_late_init();
 
 	return 0;
 }
@@ -369,7 +372,7 @@ int dram_init_banksize(void)
 
 	/* fall back to default DRAM bank size computation */
 
-	gd->bd->bi_dram[0].start = CONFIG_SYS_SDRAM_BASE;
+	gd->bd->bi_dram[0].start = CFG_SYS_SDRAM_BASE;
 	gd->bd->bi_dram[0].size = usable_ram_size_below_4g();
 
 #ifdef CONFIG_PCI
@@ -400,7 +403,7 @@ int dram_init_banksize(void)
  * This function is called before dram_init_banksize(), so we can't simply
  * return gd->bd->bi_dram[1].start + gd->bd->bi_dram[1].size.
  */
-ulong board_get_usable_ram_top(ulong total_size)
+phys_addr_t board_get_usable_ram_top(phys_size_t total_size)
 {
 	ulong ram_top;
 
@@ -411,5 +414,5 @@ ulong board_get_usable_ram_top(ulong total_size)
 
 	/* fall back to default usable RAM computation */
 
-	return CONFIG_SYS_SDRAM_BASE + usable_ram_size_below_4g();
+	return CFG_SYS_SDRAM_BASE + usable_ram_size_below_4g();
 }

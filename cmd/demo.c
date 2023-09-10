@@ -8,6 +8,7 @@
 
 #include <common.h>
 #include <command.h>
+#include <dm.h>
 #include <dm-demo.h>
 #include <mapmem.h>
 #include <asm/io.h>
@@ -47,7 +48,7 @@ static int do_demo_light(struct cmd_tbl *cmdtp, int flag, int argc,
 	int ret;
 
 	if (argc) {
-		light = simple_strtoul(argv[0], NULL, 16);
+		light = hextoul(argv[0], NULL);
 		ret = demo_set_light(demo_dev, light);
 	} else {
 		ret = demo_get_light(demo_dev);
@@ -63,20 +64,23 @@ static int do_demo_light(struct cmd_tbl *cmdtp, int flag, int argc,
 int do_demo_list(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 {
 	struct udevice *dev;
-	int i, ret;
+	int i, ret, err = 0;
 
 	puts("Demo uclass entries:\n");
 
-	for (i = 0, ret = uclass_first_device(UCLASS_DEMO, &dev);
+	for (i = 0, ret = uclass_first_device_check(UCLASS_DEMO, &dev);
 	     dev;
-	     ret = uclass_next_device(&dev)) {
-		printf("entry %d - instance %08x, ops %08x, platdata %08x\n",
+	     ret = uclass_next_device_check(&dev)) {
+		printf("entry %d - instance %08x, ops %08x, plat %08x, status %i\n",
 		       i++, (uint)map_to_sysmem(dev),
 		       (uint)map_to_sysmem(dev->driver->ops),
-		       (uint)map_to_sysmem(dev_get_platdata(dev)));
+		       (uint)map_to_sysmem(dev_get_plat(dev)),
+		       ret);
+		if (ret)
+			err = ret;
 	}
 
-	return cmd_process_error(cmdtp, ret);
+	return cmd_process_error(cmdtp, err);
 }
 
 static struct cmd_tbl demo_commands[] = {
@@ -105,7 +109,7 @@ static int do_demo(struct cmd_tbl *cmdtp, int flag, int argc,
 		return CMD_RET_USAGE;
 
 	if (argc) {
-		devnum = simple_strtoul(argv[0], NULL, 10);
+		devnum = dectoul(argv[0], NULL);
 		ret = uclass_get_device(UCLASS_DEMO, devnum, &demo_dev);
 		if (ret)
 			return cmd_process_error(cmdtp, ret);
@@ -129,5 +133,4 @@ U_BOOT_CMD(
 	"demo hello <num> [<char>]     Say hello\n"
 	"demo light [<num>]            Set or get the lights\n"
 	"demo status <num>             Get demo device status\n"
-	"demo list                     List available demo devices"
 );

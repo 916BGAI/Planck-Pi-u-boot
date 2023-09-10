@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright 2016 Freescale Semiconductor, Inc.
- * Copyright 2019 NXP
+ * Copyright 2019-2021 NXP
  */
 
 #include <common.h>
+#include <clock_legacy.h>
 #include <i2c.h>
 #include <fdt_support.h>
 #include <fsl_ddr_sdram.h>
 #include <init.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
 #include <asm/arch/clock.h>
 #include <asm/arch/fsl_serdes.h>
@@ -26,8 +28,8 @@
 #include <fsl_csu.h>
 #include <fsl_esdhc.h>
 #include <fsl_ifc.h>
-#include <fsl_sec.h>
 #include <spl.h>
+#include "../common/i2c_mux.h"
 
 #include "../common/vid.h"
 #include "../common/qixis.h"
@@ -39,55 +41,55 @@ DECLARE_GLOBAL_DATA_PTR;
 struct ifc_regs ifc_cfg_nor_boot[CONFIG_SYS_FSL_IFC_BANK_COUNT] = {
 	{
 		"nor0",
-		CONFIG_SYS_NOR0_CSPR,
-		CONFIG_SYS_NOR0_CSPR_EXT,
-		CONFIG_SYS_NOR_AMASK,
-		CONFIG_SYS_NOR_CSOR,
+		CFG_SYS_NOR0_CSPR,
+		CFG_SYS_NOR0_CSPR_EXT,
+		CFG_SYS_NOR_AMASK,
+		CFG_SYS_NOR_CSOR,
 		{
-			CONFIG_SYS_NOR_FTIM0,
-			CONFIG_SYS_NOR_FTIM1,
-			CONFIG_SYS_NOR_FTIM2,
-			CONFIG_SYS_NOR_FTIM3
+			CFG_SYS_NOR_FTIM0,
+			CFG_SYS_NOR_FTIM1,
+			CFG_SYS_NOR_FTIM2,
+			CFG_SYS_NOR_FTIM3
 		},
 
 	},
 	{
 		"nor1",
-		CONFIG_SYS_NOR1_CSPR,
-		CONFIG_SYS_NOR1_CSPR_EXT,
-		CONFIG_SYS_NOR_AMASK,
-		CONFIG_SYS_NOR_CSOR,
+		CFG_SYS_NOR1_CSPR,
+		CFG_SYS_NOR1_CSPR_EXT,
+		CFG_SYS_NOR_AMASK,
+		CFG_SYS_NOR_CSOR,
 		{
-			CONFIG_SYS_NOR_FTIM0,
-			CONFIG_SYS_NOR_FTIM1,
-			CONFIG_SYS_NOR_FTIM2,
-			CONFIG_SYS_NOR_FTIM3
+			CFG_SYS_NOR_FTIM0,
+			CFG_SYS_NOR_FTIM1,
+			CFG_SYS_NOR_FTIM2,
+			CFG_SYS_NOR_FTIM3
 		},
 	},
 	{
 		"nand",
-		CONFIG_SYS_NAND_CSPR,
-		CONFIG_SYS_NAND_CSPR_EXT,
-		CONFIG_SYS_NAND_AMASK,
-		CONFIG_SYS_NAND_CSOR,
+		CFG_SYS_NAND_CSPR,
+		CFG_SYS_NAND_CSPR_EXT,
+		CFG_SYS_NAND_AMASK,
+		CFG_SYS_NAND_CSOR,
 		{
-			CONFIG_SYS_NAND_FTIM0,
-			CONFIG_SYS_NAND_FTIM1,
-			CONFIG_SYS_NAND_FTIM2,
-			CONFIG_SYS_NAND_FTIM3
+			CFG_SYS_NAND_FTIM0,
+			CFG_SYS_NAND_FTIM1,
+			CFG_SYS_NAND_FTIM2,
+			CFG_SYS_NAND_FTIM3
 		},
 	},
 	{
 		"fpga",
-		CONFIG_SYS_FPGA_CSPR,
-		CONFIG_SYS_FPGA_CSPR_EXT,
-		CONFIG_SYS_FPGA_AMASK,
-		CONFIG_SYS_FPGA_CSOR,
+		CFG_SYS_FPGA_CSPR,
+		CFG_SYS_FPGA_CSPR_EXT,
+		CFG_SYS_FPGA_AMASK,
+		CFG_SYS_FPGA_CSOR,
 		{
-			CONFIG_SYS_FPGA_FTIM0,
-			CONFIG_SYS_FPGA_FTIM1,
-			CONFIG_SYS_FPGA_FTIM2,
-			CONFIG_SYS_FPGA_FTIM3
+			CFG_SYS_FPGA_FTIM0,
+			CFG_SYS_FPGA_FTIM1,
+			CFG_SYS_FPGA_FTIM2,
+			CFG_SYS_FPGA_FTIM3
 		},
 	}
 };
@@ -95,54 +97,54 @@ struct ifc_regs ifc_cfg_nor_boot[CONFIG_SYS_FSL_IFC_BANK_COUNT] = {
 struct ifc_regs ifc_cfg_nand_boot[CONFIG_SYS_FSL_IFC_BANK_COUNT] = {
 	{
 		"nand",
-		CONFIG_SYS_NAND_CSPR,
-		CONFIG_SYS_NAND_CSPR_EXT,
-		CONFIG_SYS_NAND_AMASK,
-		CONFIG_SYS_NAND_CSOR,
+		CFG_SYS_NAND_CSPR,
+		CFG_SYS_NAND_CSPR_EXT,
+		CFG_SYS_NAND_AMASK,
+		CFG_SYS_NAND_CSOR,
 		{
-			CONFIG_SYS_NAND_FTIM0,
-			CONFIG_SYS_NAND_FTIM1,
-			CONFIG_SYS_NAND_FTIM2,
-			CONFIG_SYS_NAND_FTIM3
+			CFG_SYS_NAND_FTIM0,
+			CFG_SYS_NAND_FTIM1,
+			CFG_SYS_NAND_FTIM2,
+			CFG_SYS_NAND_FTIM3
 		},
 	},
 	{
 		"nor0",
-		CONFIG_SYS_NOR0_CSPR,
-		CONFIG_SYS_NOR0_CSPR_EXT,
-		CONFIG_SYS_NOR_AMASK,
-		CONFIG_SYS_NOR_CSOR,
+		CFG_SYS_NOR0_CSPR,
+		CFG_SYS_NOR0_CSPR_EXT,
+		CFG_SYS_NOR_AMASK,
+		CFG_SYS_NOR_CSOR,
 		{
-			CONFIG_SYS_NOR_FTIM0,
-			CONFIG_SYS_NOR_FTIM1,
-			CONFIG_SYS_NOR_FTIM2,
-			CONFIG_SYS_NOR_FTIM3
+			CFG_SYS_NOR_FTIM0,
+			CFG_SYS_NOR_FTIM1,
+			CFG_SYS_NOR_FTIM2,
+			CFG_SYS_NOR_FTIM3
 		},
 	},
 	{
 		"nor1",
-		CONFIG_SYS_NOR1_CSPR,
-		CONFIG_SYS_NOR1_CSPR_EXT,
-		CONFIG_SYS_NOR_AMASK,
-		CONFIG_SYS_NOR_CSOR,
+		CFG_SYS_NOR1_CSPR,
+		CFG_SYS_NOR1_CSPR_EXT,
+		CFG_SYS_NOR_AMASK,
+		CFG_SYS_NOR_CSOR,
 		{
-			CONFIG_SYS_NOR_FTIM0,
-			CONFIG_SYS_NOR_FTIM1,
-			CONFIG_SYS_NOR_FTIM2,
-			CONFIG_SYS_NOR_FTIM3
+			CFG_SYS_NOR_FTIM0,
+			CFG_SYS_NOR_FTIM1,
+			CFG_SYS_NOR_FTIM2,
+			CFG_SYS_NOR_FTIM3
 		},
 	},
 	{
 		"fpga",
-		CONFIG_SYS_FPGA_CSPR,
-		CONFIG_SYS_FPGA_CSPR_EXT,
-		CONFIG_SYS_FPGA_AMASK,
-		CONFIG_SYS_FPGA_CSOR,
+		CFG_SYS_FPGA_CSPR,
+		CFG_SYS_FPGA_CSPR_EXT,
+		CFG_SYS_FPGA_AMASK,
+		CFG_SYS_FPGA_CSOR,
 		{
-			CONFIG_SYS_FPGA_FTIM0,
-			CONFIG_SYS_FPGA_FTIM1,
-			CONFIG_SYS_FPGA_FTIM2,
-			CONFIG_SYS_FPGA_FTIM3
+			CFG_SYS_FPGA_FTIM0,
+			CFG_SYS_FPGA_FTIM1,
+			CFG_SYS_FPGA_FTIM2,
+			CFG_SYS_FPGA_FTIM3
 		},
 	}
 };
@@ -271,31 +273,6 @@ u32 get_lpuart_clk(void)
 }
 #endif
 
-int select_i2c_ch_pca9547(u8 ch, int bus_num)
-{
-	int ret;
-#ifdef CONFIG_DM_I2C
-	struct udevice *dev;
-
-	ret = i2c_get_chip_for_busnum(bus_num, I2C_MUX_PCA_ADDR_PRI,
-				      1, &dev);
-	if (ret) {
-		printf("%s: Cannot find udev for a bus %d\n", __func__,
-		       bus_num);
-		return ret;
-	}
-	ret = dm_i2c_write(dev, 0, &ch, 1);
-#else
-	ret = i2c_write(I2C_MUX_PCA_ADDR_PRI, 0, 1, &ch, 1);
-#endif
-	if (ret) {
-		puts("PCA: failed to select proper channel\n");
-		return ret;
-	}
-
-	return 0;
-}
-
 int dram_init(void)
 {
 	/*
@@ -323,18 +300,22 @@ int i2c_multiplexer_select_vid_channel(u8 channel)
 
 int board_early_init_f(void)
 {
+	u32 __iomem *cntcr = (u32 *)CFG_SYS_FSL_TIMER_ADDR;
 #ifdef CONFIG_HAS_FSL_XHCI_USB
-	struct ccsr_scfg *scfg = (struct ccsr_scfg *)CONFIG_SYS_FSL_SCFG_ADDR;
+	struct ccsr_scfg *scfg = (struct ccsr_scfg *)CFG_SYS_FSL_SCFG_ADDR;
 	u32 usb_pwrfault;
 #endif
 #ifdef CONFIG_LPUART
 	u8 uart;
 #endif
 
-#ifdef CONFIG_SYS_I2C
-#ifdef CONFIG_SYS_I2C_EARLY_INIT
+	/*
+	 * Enable secure system counter for timer
+	 */
+	out_le32(cntcr, 0x1);
+
+#if defined(CONFIG_SYS_I2C_EARLY_INIT)
 	i2c_early_init_f();
-#endif
 #endif
 	fsl_lsch2_early_init_f();
 
@@ -366,7 +347,7 @@ int board_early_init_f(void)
 bool is_warm_boot(void)
 {
 #define DCFG_CCSR_CRSTSR_WDRFR	(1 << 3)
-	struct ccsr_gur __iomem *gur = (void *)CONFIG_SYS_FSL_GUTS_ADDR;
+	struct ccsr_gur __iomem *gur = (void *)CFG_SYS_FSL_GUTS_ADDR;
 
 	if (in_be32(&gur->crstsr) & DCFG_CCSR_CRSTSR_WDRFR)
 		return 1;
@@ -414,7 +395,7 @@ int board_init(void)
 {
 	select_i2c_ch_pca9547(I2C_MUX_CH_DEFAULT, 0);
 
-#ifdef CONFIG_SYS_FSL_SERDES
+#ifdef CFG_SYS_FSL_SERDES
 	config_serdes_mux();
 #endif
 
@@ -439,15 +420,11 @@ int board_init(void)
 	out_le32(SMMU_NSCR0, val);
 #endif
 
-#ifdef CONFIG_FSL_CAAM
-	sec_init();
-#endif
-
 	return 0;
 }
 
 #ifdef CONFIG_OF_BOARD_SETUP
-int ft_board_setup(void *blob, bd_t *bd)
+int ft_board_setup(void *blob, struct bd_info *bd)
 {
 	u64 base[CONFIG_NR_DRAM_BANKS];
 	u64 size[CONFIG_NR_DRAM_BANKS];
@@ -462,10 +439,7 @@ int ft_board_setup(void *blob, bd_t *bd)
 	fdt_fixup_memory_banks(blob, base, size, 2);
 	ft_cpu_setup(blob, bd);
 
-#ifdef CONFIG_SYS_DPAA_FMAN
-#ifndef CONFIG_DM_ETH
-	fdt_fixup_fman_ethernet(blob);
-#endif
+#ifdef CONFIG_FMAN_ENET
 	fdt_fixup_board_enet(blob);
 #endif
 
@@ -505,6 +479,6 @@ u16 flash_read16(void *addr)
 #if defined(CONFIG_TFABOOT) && defined(CONFIG_ENV_IS_IN_SPI_FLASH)
 void *env_sf_get_env_addr(void)
 {
-	return (void *)(CONFIG_SYS_FSL_QSPI_BASE + CONFIG_ENV_OFFSET);
+	return (void *)(CFG_SYS_FSL_QSPI_BASE + CONFIG_ENV_OFFSET);
 }
 #endif

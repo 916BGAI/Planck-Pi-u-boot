@@ -69,7 +69,7 @@ The PayloadId can be any 4 Bytes value.
     +GEN_CFG_DATA.PayloadId                     | 'U-BT'
 
 2. Update payload text base. PAYLOAD_EXE_BASE must be the same as U-Boot
-   CONFIG_SYS_TEXT_BASE in board/intel/slimbootloader/Kconfig.
+   CONFIG_TEXT_BASE in board/intel/slimbootloader/Kconfig.
    PAYLOAD_LOAD_HIGH must be 0::
 
     $ vi Platform/QemuBoardPkg/BoardConfig.py
@@ -122,7 +122,7 @@ Also, the PayloadId needs to be set for APL board.
 
 2. Update payload text base.
 
-* PAYLOAD_EXE_BASE must be the same as U-Boot CONFIG_SYS_TEXT_BASE
+* PAYLOAD_EXE_BASE must be the same as U-Boot CONFIG_TEXT_BASE
   in board/intel/slimbootloader/Kconfig.
 * PAYLOAD_LOAD_HIGH must be 0::
 
@@ -170,7 +170,7 @@ Build Instruction to use ELF U-Boot
 
    $ python BuildLoader.py build <qemu or apl> -p "OsLoader.efi:LLDR:Lz4;u-boot:U-BT:Lzma"
 
-.. _U-Boot: https://gitlab.denx.de/
+.. _U-Boot: https://source.denx.de/
 .. _`Slim Bootloader`: https://github.com/slimbootloader/
 .. _`Intel FSP`: https://github.com/IntelFsp/
 .. _`Getting Started`: https://slimbootloader.github.io/getting-started/

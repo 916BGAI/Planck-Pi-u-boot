@@ -18,6 +18,7 @@
 #include <init.h>
 #include <log.h>
 #include <net.h>
+#include <asm/global_data.h>
 #include <asm/gpio.h>
 #include <asm/io.h>
 #include <asm/arch/imx-regs.h>
@@ -57,10 +58,11 @@ static void init_clocks(void)
 	mxs_set_sspclk(MXC_SSPCLK3, 96000, 0);
 }
 
-#ifdef CONFIG_SPL_BUILD
+#if defined(CONFIG_SPL_BUILD) && defined(CONFIG_SPL_FRAMEWORK)
 void board_init_f(ulong arg)
 {
 	init_clocks();
+	spl_early_init();
 	preloader_console_init();
 }
 
@@ -116,6 +118,7 @@ void board_boot_order(u32 *spl_boot_list)
 {
 	spl_boot_list[0] = BOOT_DEVICE_MMC1;
 	spl_boot_list[1] = BOOT_DEVICE_SPI;
+	spl_boot_list[2] = BOOT_DEVICE_UART;
 }
 
 int spl_start_uboot(void)
@@ -188,7 +191,7 @@ static int fdt_fixup_l2switch(void *blob)
 	return 0;
 }
 
-int ft_board_setup(void *blob, bd_t *bd)
+int ft_board_setup(void *blob, struct bd_info *bd)
 {
 	/*
 	 * i.MX28 L2 switch needs manual update (fixup) of eth MAC address
@@ -201,5 +204,22 @@ int ft_board_setup(void *blob, bd_t *bd)
 	return 0;
 }
 #endif
+/*
+ * NOTE:
+ *
+ * IMX28 clock "stub" DM driver!
+ *
+ * Only used for SPL stage, which is NOT using DM; serial and
+ * eMMC configuration.
+ */
+static const struct udevice_id imx28_clk_ids[] = {
+	{ .compatible = "fsl,imx28-clkctrl", },
+	{ }
+};
 
+U_BOOT_DRIVER(fsl_imx28_clkctrl) = {
+	.name           = "fsl_imx28_clkctrl",
+	.id             = UCLASS_CLK,
+	.of_match       = imx28_clk_ids,
+};
 #endif	/* CONFIG_SPL_BUILD */

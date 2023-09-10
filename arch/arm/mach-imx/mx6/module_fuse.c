@@ -190,7 +190,7 @@ u32 check_module_fused(enum fuse_module_type module)
 }
 
 #ifdef CONFIG_OF_SYSTEM_SETUP
-int ft_system_setup(void *blob, bd_t *bd)
+int ft_system_setup(void *blob, struct bd_info *bd)
 {
 	const char *status = "disabled";
 	u32 i, reg;
@@ -206,7 +206,7 @@ int ft_system_setup(void *blob, bd_t *bd)
 			if (off < 0)
 				continue; /* Not found, skip it */
 add_status:
-			rc = fdt_setprop(blob, nodeoff, "status", status,
+			rc = fdt_setprop(blob, off, "status", status,
 					 strlen(status) + 1);
 			if (rc) {
 				if (rc == -FDT_ERR_NOSPACE) {

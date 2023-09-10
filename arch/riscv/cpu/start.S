@@ -13,6 +13,7 @@
 #include <config.h>
 #include <common.h>
 #include <elf.h>
+#include <system-constants.h>
 #include <asm/encoding.h>
 #include <generated/asm-offsets.h>
 
@@ -43,14 +44,32 @@ _start:
 	csrr	a0, CSR_MHARTID
 #endif
 
-	/* save hart id and dtb pointer */
+	/*
+	 * Save hart id and dtb pointer. The thread pointer register is not
+	 * modified by C code. It is used by secondary_hart_loop.
+	 */
 	mv	tp, a0
 	mv	s1, a1
 
+	/*
+	 * Set the global data pointer to a known value in case we get a very
+	 * early trap. The global data pointer will be set its actual value only
+	 * after it has been initialized.
+	 */
+	mv	gp, zero
+
+	/*
+	 * Set the trap handler. This must happen after initializing gp because
+	 * the handler may use it.
+	 */
 	la	t0, trap_entry
 	csrw	MODE_PREFIX(tvec), t0
 
-	/* mask all interrupts */
+	/*
+	 * Mask all interrupts. Interrupts are disabled globally (in m/sstatus)
+	 * for U-Boot, but we will need to read m/sip to determine if we get an
+	 * IPI
+	 */
 	csrw	MODE_PREFIX(ie), zero
 
 #if CONFIG_IS_ENABLED(SMP)
@@ -72,67 +91,107 @@ _start:
  * Set stackpointer in internal/ex RAM to call board_init_f
  */
 call_board_init_f:
-	li	t0, -16
 #if defined(CONFIG_SPL_BUILD) && defined(CONFIG_SPL_STACK)
-	li	t1, CONFIG_SPL_STACK
+	li	t0, CONFIG_SPL_STACK
 #else
-	li	t1, CONFIG_SYS_INIT_SP_ADDR
+	li	t0, SYS_INIT_SP_ADDR
 #endif
-	and	sp, t1, t0		/* force 16 byte alignment */
-
-call_board_init_f_0:
-	mv	a0, sp
-	jal	board_init_f_alloc_reserve
-
-	/*
-	 * Set global data pointer here for all harts, uninitialized at this
-	 * point.
-	 */
-	mv	gp, a0
+	and	t0, t0, -16		/* force 16 byte alignment */
 
 	/* setup stack */
 #if CONFIG_IS_ENABLED(SMP)
 	/* tp: hart id */
-	slli	t0, tp, CONFIG_STACK_SIZE_SHIFT
-	sub	sp, a0, t0
+	slli	t1, tp, CONFIG_STACK_SIZE_SHIFT
+	sub	sp, t0, t1
 #else
-	mv	sp, a0
+	mv	sp, t0
+#endif
+/*
+ * Now sp points to the right stack belonging to current CPU.
+ * It's essential before any function call, otherwise, we get data-race.
+ */
+
+/* clear stack if necessary */
+#if CONFIG_IS_ENABLED(ZERO_MEM_BEFORE_USE)
+clear_stack:
+	li	t1, 1
+	slli	t1, t1, CONFIG_STACK_SIZE_SHIFT
+	sub	t1, sp, t1
+clear_stack_loop:
+	SREG	zero, 0(t1)		/* t1 is always 16 byte aligned */
+	addi	t1, t1, REGBYTES
+	blt	t1, sp, clear_stack_loop
 #endif
 
-#ifndef CONFIG_XIP
+call_board_init_f_0:
+	/* find top of reserve space */
+#if CONFIG_IS_ENABLED(SMP)
+	li	t1, CONFIG_NR_CPUS
+#else
+	li	t1, 1
+#endif
+	slli	t1, t1, CONFIG_STACK_SIZE_SHIFT
+	sub	a0, t0, t1		/* t1 -> size of all CPU stacks */
+	jal	board_init_f_alloc_reserve
+
+	/*
+	 * Save global data pointer for later. We don't set it here because it
+	 * is not initialized yet.
+	 */
+	mv	s0, a0
+
+
+	/* Configure proprietary settings and customized CSRs of harts */
+call_harts_early_init:
+	jal	harts_early_init
+
+#if !CONFIG_IS_ENABLED(XIP)
 	/*
 	 * Pick hart to initialize global data and run U-Boot. The other harts
 	 * wait for initialization to complete.
 	 */
 	la	t0, hart_lottery
-	li	s2, 1
+	li	t1, 1
 	amoswap.w s2, t1, 0(t0)
 	bnez	s2, wait_for_gd_init
 #else
+	/*
+	 * FIXME: gp is set before it is initialized. If an XIP U-Boot ever
+	 * encounters a pending IPI on boot it is liable to jump to whatever
+	 * memory happens to be in ipi_data.addr on boot. It may also run into
+	 * problems if it encounters an exception too early (because printf/puts
+	 * accesses gd).
+	 */
+	mv	gp, s0
+#if CONFIG_IS_ENABLED(RISCV_MMODE)
 	bnez	tp, secondary_hart_loop
 #endif
-
-#ifdef CONFIG_OF_PRIOR_STAGE
-	la	t0, prior_stage_fdt_address
-	SREG	s1, 0(t0)
 #endif
-
+	
+	mv      a0, s0
 	jal	board_init_f_init_reserve
 
 	SREG	s1, GD_FIRMWARE_FDT_ADDR(gp)
 	/* save the boot hart id to global_data */
 	SREG	tp, GD_BOOT_HART(gp)
 
-#ifndef CONFIG_XIP
+#if !CONFIG_IS_ENABLED(XIP)
+#ifdef CONFIG_AVAILABLE_HARTS
 	la	t0, available_harts_lock
-	fence	rw, w
-	amoswap.w zero, zero, 0(t0)
+	amoswap.w.rl zero, zero, 0(t0)
+#endif
 
 wait_for_gd_init:
+	/*
+	 * Set the global data pointer only when gd_t has been initialized.
+	 * This was already set by arch_setup_gd on the boot hart, but all other
+	 * harts' global data pointers gets set here.
+	 */
+	mv	gp, s0
+#ifdef CONFIG_AVAILABLE_HARTS
 	la	t0, available_harts_lock
 	li	t1, 1
-1:	amoswap.w t1, t1, 0(t0)
-	fence	r, rw
+1:	amoswap.w.aq t1, t1, 0(t0)
 	bnez	t1, 1b
 
 	/* register available harts in the available_harts mask */
@@ -142,8 +201,8 @@ wait_for_gd_init:
 	or	t2, t2, t1
 	SREG	t2, GD_AVAILABLE_HARTS(gp)
 
-	fence	rw, w
-	amoswap.w zero, zero, 0(t0)
+	amoswap.w.rl zero, zero, 0(t0)
+#endif
 
 	/*
 	 * Continue on hart lottery winner, others branch to
@@ -191,6 +250,7 @@ spl_stack_gd_setup:
 	mv	sp, s0
 #endif
 
+#if CONFIG_IS_ENABLED(SMP)
 	/* set new stack and global data pointer on secondary harts */
 spl_secondary_hart_stack_gd_setup:
 	la	a0, secondary_hart_relocate
@@ -205,6 +265,7 @@ spl_secondary_hart_stack_gd_setup:
 	la	a0, secondary_harts_relocation_error
 	jal	printf
 	jal	hang
+#endif
 
 	/* set new global data pointer on main hart */
 1:	mv	gp, s0
@@ -212,9 +273,10 @@ spl_secondary_hart_stack_gd_setup:
 spl_call_board_init_r:
 	mv	a0, zero
 	mv	a1, zero
-	jal	board_init_r
+	j	board_init_r
 #endif
 
+#if !defined(CONFIG_SPL_BUILD)
 /*
  * void relocate_code(addr_sp, gd, addr_moni)
  *
@@ -245,9 +307,7 @@ stack_setup:
 	beq	t0, s4, clear_bss	/* skip relocation */
 
 	mv	t1, s4			/* t1 <- scratch for copy_loop */
-	la	t3, __bss_start
-	sub	t3, t3, t0		/* t3 <- __bss_start_ofs */
-	add	t2, t0, t3		/* t2 <- source end address */
+	la	t2, __bss_start		/* t2 <- source end address */
 
 copy_loop:
 	LREG	t5, 0(t0)
@@ -266,17 +326,12 @@ fix_rela_dyn:
 	add	t1, t1, t6		/* t1 <- rela_dyn_start in RAM */
 	add	t2, t2, t6		/* t2 <- rela_dyn_end in RAM */
 
-/*
- * skip first reserved entry: address, type, addend
- */
-	j	10f
-
 6:
-	LREG	t5, -(REGBYTES*2)(t1)	/* t5 <-- relocation info:type */
+	LREG	t5, REGBYTES(t1)	/* t5 <-- relocation info:type */
 	li	t3, R_RISCV_RELATIVE	/* reloc type R_RISCV_RELATIVE */
 	bne	t5, t3, 8f		/* skip non-RISCV_RELOC entries */
-	LREG	t3, -(REGBYTES*3)(t1)
-	LREG	t5, -(REGBYTES)(t1)	/* t5 <-- addend */
+	LREG	t3, 0(t1)
+	LREG	t5, (REGBYTES * 2)(t1)	/* t5 <-- addend */
 	add	t5, t5, t6		/* t5 <-- location to fix up in RAM */
 	add	t3, t3, t6		/* t3 <-- location to fix up in RAM */
 	SREG	t5, 0(t3)
@@ -287,25 +342,24 @@ fix_rela_dyn:
 	add	t4, t4, t6
 
 9:
-	LREG	t5, -(REGBYTES*2)(t1)	/* t5 <-- relocation info:type */
 	srli	t0, t5, SYM_INDEX	/* t0 <--- sym table index */
 	andi	t5, t5, 0xFF		/* t5 <--- relocation type */
 	li	t3, RELOC_TYPE
 	bne	t5, t3, 10f		/* skip non-addned entries */
 
-	LREG	t3, -(REGBYTES*3)(t1)
+	LREG	t3, 0(t1)
 	li	t5, SYM_SIZE
 	mul	t0, t0, t5
 	add	s5, t4, t0
-	LREG	t0, -(REGBYTES)(t1)	/* t0 <-- addend */
+	LREG	t0, (REGBYTES * 2)(t1)	/* t0 <-- addend */
 	LREG	t5, REGBYTES(s5)
 	add	t5, t5, t0
 	add	t5, t5, t6		/* t5 <-- location to fix up in RAM */
 	add	t3, t3, t6		/* t3 <-- location to fix up in RAM */
 	SREG	t5, 0(t3)
 10:
-	addi	t1, t1, (REGBYTES*3)
-	ble	t1, t2, 6b
+	addi	t1, t1, (REGBYTES * 3)
+	blt	t1, t2, 6b
 
 /*
  * trap update
@@ -370,6 +424,7 @@ call_board_init_r:
  * jump to it ...
  */
 	jr	t4			/* jump to board_init_r() */
+#endif /* !defined(CONFIG_SPL_BUILD) */
 
 #if CONFIG_IS_ENABLED(SMP)
 hart_out_of_bounds_loop:
@@ -391,6 +446,10 @@ secondary_hart_relocate:
 	mv	gp, a2
 #endif
 
+/*
+ * Interrupts are disabled globally, but they can still be read from m/sip. The
+ * wfi function will wake us up if we get an IPI, even if we do not trap.
+ */
 secondary_hart_loop:
 	wfi
 

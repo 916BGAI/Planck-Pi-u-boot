@@ -12,6 +12,7 @@
 
 #include <common.h>
 #include <init.h>
+#include <asm/global_data.h>
 #include <linux/sizes.h>
 #include <asm/io.h>
 #include <asm/gpio.h>
@@ -64,13 +65,15 @@ static void pm9g45_nand_hw_init(void)
 
 	at91_periph_clk_enable(ATMEL_ID_PIOC);
 
-#ifdef CONFIG_SYS_NAND_READY_PIN
+#ifdef CFG_SYS_NAND_READY_PIN
 	/* Configure RDY/BSY */
-	gpio_direction_input(CONFIG_SYS_NAND_READY_PIN);
+	gpio_request(CFG_SYS_NAND_READY_PIN, "NAND RDY/BSY");
+	gpio_direction_input(CFG_SYS_NAND_READY_PIN);
 #endif
 
 	/* Enable NandFlash */
-	gpio_direction_output(CONFIG_SYS_NAND_ENABLE_PIN, 1);
+	gpio_request(CFG_SYS_NAND_ENABLE_PIN, "NAND enable");
+	gpio_direction_output(CFG_SYS_NAND_ENABLE_PIN, 1);
 }
 #endif
 
@@ -125,7 +128,7 @@ int board_init(void)
 	/* arch number of AT91SAM9M10G45EK-Board */
 	gd->bd->bi_arch_number = MACH_TYPE_PM9G45;
 	/* adress of boot parameters */
-	gd->bd->bi_boot_params = CONFIG_SYS_SDRAM_BASE + 0x100;
+	gd->bd->bi_boot_params = CFG_SYS_SDRAM_BASE + 0x100;
 
 #ifdef CONFIG_CMD_NAND
 	pm9g45_nand_hw_init();
@@ -140,15 +143,15 @@ int board_init(void)
 int dram_init(void)
 {
 	/* dram_init must store complete ramsize in gd->ram_size */
-	gd->ram_size = get_ram_size((void *)CONFIG_SYS_SDRAM_BASE,
-				    CONFIG_SYS_SDRAM_SIZE);
+	gd->ram_size = get_ram_size((void *)CFG_SYS_SDRAM_BASE,
+				    CFG_SYS_SDRAM_SIZE);
 	return 0;
 }
 
 int dram_init_banksize(void)
 {
-	gd->bd->bi_dram[0].start = CONFIG_SYS_SDRAM_BASE;
-	gd->bd->bi_dram[0].size = CONFIG_SYS_SDRAM_SIZE;
+	gd->bd->bi_dram[0].start = CFG_SYS_SDRAM_BASE;
+	gd->bd->bi_dram[0].size = CFG_SYS_SDRAM_SIZE;
 
 	return 0;
 }
@@ -166,7 +169,7 @@ void reset_phy(void)
 }
 #endif
 
-int board_eth_init(bd_t *bis)
+int board_eth_init(struct bd_info *bis)
 {
 	int rc = 0;
 #ifdef CONFIG_MACB

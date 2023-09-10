@@ -7,13 +7,14 @@
 #include <common.h>
 #include <init.h>
 #include <time.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
 #include <div64.h>
 #include <bootstage.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
-#ifndef CONFIG_SYS_HZ_CLOCK
+#ifndef CFG_SYS_HZ_CLOCK
 static inline u32 read_cntfrq(void)
 {
 	u32 frq;
@@ -28,8 +29,8 @@ int timer_init(void)
 	gd->arch.tbl = 0;
 	gd->arch.tbu = 0;
 
-#ifdef CONFIG_SYS_HZ_CLOCK
-	gd->arch.timer_rate_hz = CONFIG_SYS_HZ_CLOCK;
+#ifdef CFG_SYS_HZ_CLOCK
+	gd->arch.timer_rate_hz = CFG_SYS_HZ_CLOCK;
 #else
 	gd->arch.timer_rate_hz = read_cntfrq();
 #endif

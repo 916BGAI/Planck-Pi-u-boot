@@ -26,16 +26,18 @@
 /* PCIe Link Status Register */
 #define PCI_LSR				(FSL_PCIE_CAP_ID + 0x12)
 
-#ifndef CONFIG_SYS_PCI_MEMORY_BUS
-#define CONFIG_SYS_PCI_MEMORY_BUS	0
+#define DBI_RO_WR_EN			0x8bc
+
+#ifndef CFG_SYS_PCI_MEMORY_BUS
+#define CFG_SYS_PCI_MEMORY_BUS	0
 #endif
 
-#ifndef CONFIG_SYS_PCI_MEMORY_PHYS
-#define CONFIG_SYS_PCI_MEMORY_PHYS	0
+#ifndef CFG_SYS_PCI_MEMORY_PHYS
+#define CFG_SYS_PCI_MEMORY_PHYS	0
 #endif
 
-#if defined(CONFIG_SYS_PCI_64BIT) && !defined(CONFIG_SYS_PCI64_MEMORY_BUS)
-#define CONFIG_SYS_PCI64_MEMORY_BUS	(64ull * 1024 * 1024 * 1024)
+#if defined(CONFIG_SYS_PCI_64BIT) && !defined(CFG_SYS_PCI64_MEMORY_BUS)
+#define CFG_SYS_PCI64_MEMORY_BUS	(64ull * 1024 * 1024 * 1024)
 #endif
 
 #define PEX_CSR0_LTSSM_MASK		0xFC

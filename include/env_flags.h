@@ -12,7 +12,7 @@ enum env_flags_vartype {
 	env_flags_vartype_decimal,
 	env_flags_vartype_hex,
 	env_flags_vartype_bool,
-#ifdef CONFIG_CMD_NET
+#ifdef CONFIG_NET
 	env_flags_vartype_ipaddr,
 	env_flags_vartype_macaddr,
 #endif
@@ -24,6 +24,9 @@ enum env_flags_varaccess {
 	env_flags_varaccess_readonly,
 	env_flags_varaccess_writeonce,
 	env_flags_varaccess_changedefault,
+#ifdef CONFIG_ENV_WRITEABLE_LIST
+	env_flags_varaccess_writeable,
+#endif
 	env_flags_varaccess_end
 };
 
@@ -32,8 +35,8 @@ enum env_flags_varaccess {
 #define ENV_FLAGS_VARTYPE_LOC 0
 #define ENV_FLAGS_VARACCESS_LOC 1
 
-#ifndef CONFIG_ENV_FLAGS_LIST_STATIC
-#define CONFIG_ENV_FLAGS_LIST_STATIC ""
+#ifndef CFG_ENV_FLAGS_LIST_STATIC
+#define CFG_ENV_FLAGS_LIST_STATIC ""
 #endif
 
 #ifdef CONFIG_NET
@@ -64,6 +67,15 @@ enum env_flags_varaccess {
 #define NET_FLAGS
 #endif
 
+#ifdef CONFIG_IPV6
+#define NET6_FLAGS \
+	"ip6addr:s," \
+	"serverip6:s," \
+	"gatewayip6:s,"
+#else
+#define NET6_FLAGS
+#endif
+
 #ifndef CONFIG_ENV_OVERWRITE
 #define SERIAL_FLAGS "serial#:so,"
 #else
@@ -73,8 +85,9 @@ enum env_flags_varaccess {
 #define ENV_FLAGS_LIST_STATIC \
 	ETHADDR_FLAGS \
 	NET_FLAGS \
+	NET6_FLAGS \
 	SERIAL_FLAGS \
-	CONFIG_ENV_FLAGS_LIST_STATIC
+	CFG_ENV_FLAGS_LIST_STATIC
 
 #ifdef CONFIG_CMD_ENV_FLAGS
 /*
@@ -108,7 +121,7 @@ enum env_flags_varaccess env_flags_parse_varaccess(const char *flags);
  */
 enum env_flags_varaccess env_flags_parse_varaccess_from_binflags(int binflags);
 
-#ifdef CONFIG_CMD_NET
+#ifdef CONFIG_NET
 /*
  * Check if a string has the format of an Ethernet MAC address
  */
@@ -173,6 +186,7 @@ int env_flags_validate(const struct env_entry *item, const char *newval,
 #define ENV_FLAGS_VARACCESS_PREVENT_CREATE		0x00000010
 #define ENV_FLAGS_VARACCESS_PREVENT_OVERWR		0x00000020
 #define ENV_FLAGS_VARACCESS_PREVENT_NONDEF_OVERWR	0x00000040
-#define ENV_FLAGS_VARACCESS_BIN_MASK			0x00000078
+#define ENV_FLAGS_VARACCESS_WRITEABLE			0x00000080
+#define ENV_FLAGS_VARACCESS_BIN_MASK			0x000000f8
 
 #endif /* __ENV_FLAGS_H__ */

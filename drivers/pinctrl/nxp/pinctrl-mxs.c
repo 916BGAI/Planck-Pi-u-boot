@@ -6,6 +6,7 @@
 
 #include <common.h>
 #include <log.h>
+#include <asm/global_data.h>
 #include <dm/device_compat.h>
 #include <dm/devres.h>
 #include <linux/io.h>
@@ -93,9 +94,9 @@ static int mxs_pinctrl_set_state(struct udevice *dev, struct udevice *conf)
 
 	config = mxs_dt_node_to_map(conf);
 
-	ma = CONFIG_TO_MA(config);
-	vol = CONFIG_TO_VOL(config);
-	pull = CONFIG_TO_PULL(config);
+	ma = CFG_TO_MA(config);
+	vol = CFG_TO_VOL(config);
+	pull = CFG_TO_PULL(config);
 
 	for (i = 0; i < npins; i++) {
 		int pinid, bank, pin, shift;
@@ -180,14 +181,16 @@ static const struct udevice_id mxs_pinctrl_match[] = {
 	{ /* sentinel */ }
 };
 
-U_BOOT_DRIVER(mxs_pinctrl) = {
-	.name = "mxs-pinctrl",
+U_BOOT_DRIVER(fsl_imx23_pinctrl) = {
+	.name = "fsl_imx23_pinctrl",
 	.id = UCLASS_PINCTRL,
 	.of_match = of_match_ptr(mxs_pinctrl_match),
 	.probe = mxs_pinctrl_probe,
-#if !CONFIG_IS_ENABLED(OF_PLATDATA)
+#if CONFIG_IS_ENABLED(OF_REAL)
 	.bind		= dm_scan_fdt_dev,
 #endif
-	.priv_auto_alloc_size = sizeof(struct mxs_pinctrl_priv),
+	.priv_auto	= sizeof(struct mxs_pinctrl_priv),
 	.ops = &mxs_pinctrl_ops,
 };
+
+DM_DRIVER_ALIAS(fsl_imx23_pinctrl, fsl_imx28_pinctrl)

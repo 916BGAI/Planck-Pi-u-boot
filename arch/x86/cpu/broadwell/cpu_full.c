@@ -13,6 +13,7 @@
 #include <asm/cpu.h>
 #include <asm/cpu_x86.h>
 #include <asm/cpu_common.h>
+#include <asm/global_data.h>
 #include <asm/intel_regs.h>
 #include <asm/msr.h>
 #include <asm/post.h>
@@ -626,19 +627,19 @@ void cpu_set_power_limits(int power_limit_1_time)
 	}
 }
 
-static int broadwell_get_info(struct udevice *dev, struct cpu_info *info)
+static int broadwell_get_info(const struct udevice *dev, struct cpu_info *info)
 {
 	return cpu_intel_get_info(info, INTEL_BCLK_MHZ);
 }
 
-static int broadwell_get_count(struct udevice *dev)
+static int broadwell_get_count(const struct udevice *dev)
 {
 	return 4;
 }
 
 static int cpu_x86_broadwell_probe(struct udevice *dev)
 {
-	if (dev->seq == 0) {
+	if (dev_seq(dev) == 0) {
 		cpu_core_init(dev);
 		return broadwell_init(dev);
 	}
@@ -665,6 +666,6 @@ U_BOOT_DRIVER(cpu_x86_broadwell_drv) = {
 	.bind		= cpu_x86_bind,
 	.probe		= cpu_x86_broadwell_probe,
 	.ops		= &cpu_x86_broadwell_ops,
-	.priv_auto_alloc_size	= sizeof(struct cpu_broadwell_priv),
+	.priv_auto	= sizeof(struct cpu_broadwell_priv),
 	.flags		= DM_FLAG_PRE_RELOC,
 };

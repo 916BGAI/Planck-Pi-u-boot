@@ -1,10 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0+
 #
 # (C) Copyright 2014 - 2016 Xilinx, Inc.
-# Michal Simek <michal.simek@xilinx.com>
+# Michal Simek <michal.simek@amd.com>
 
 obj-y	:= zynqmp.o
-obj-y	+= ../common/board.o
 
 ifneq ($(CONFIG_XILINX_PS_INIT_FILE),"")
 PS_INIT_FILE := $(shell cd $(srctree); readlink -f $(CONFIG_XILINX_PS_INIT_FILE))
@@ -32,11 +31,7 @@ $(warning Put custom psu_init_gpl.c/h to board/xilinx/zynqmp/custom_hw_platform/
 endif
 endif
 
-ifdef_any_of = $(filter-out undefined,$(foreach v,$(1),$(origin $(v))))
-
-ifneq ($(call ifdef_any_of, CONFIG_ZYNQMP_PSU_INIT_ENABLED CONFIG_SPL_BUILD),)
-obj-y += $(init-objs)
-endif
+obj-$(CONFIG_$(SPL_)ZYNQMP_PSU_INIT_ENABLED) += $(init-objs)
 
 ifdef CONFIG_SPL_BUILD
 ifneq ($(CONFIG_ZYNQMP_SPL_PM_CFG_OBJ_FILE),"")
@@ -44,8 +39,6 @@ obj-$(CONFIG_SPL_BUILD) += pm_cfg_obj.o
 $(obj)/pm_cfg_obj.o: $(shell cd $(srctree); readlink -f $(CONFIG_ZYNQMP_SPL_PM_CFG_OBJ_FILE)) FORCE
 endif
 endif
-
-obj-$(CONFIG_MMC_SDHCI_ZYNQ) += tap_delays.o
 
 ifndef CONFIG_SPL_BUILD
 obj-$(CONFIG_CMD_ZYNQMP) += cmds.o

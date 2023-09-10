@@ -1,5 +1,6 @@
 #include <common.h>
 #include <console.h>
+#include <dm.h>
 #include <malloc.h>
 #include <watchdog.h>
 #include <linux/delay.h>
@@ -7,10 +8,10 @@
 #include <linux/errno.h>
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
+#include <linux/usb/usb_urb_compat.h>
 
 #include <usb.h>
 #include "linux-compat.h"
-#include "usb-compat.h"
 #include "musb_core.h"
 #include "musb_host.h"
 #include "musb_gadget.h"
@@ -158,7 +159,7 @@ static struct int_queue *_musb_create_int_queue(struct musb_host_data *host,
 static int _musb_destroy_int_queue(struct musb_host_data *host,
 	struct usb_device *dev, struct int_queue *queue)
 {
-	int index = usb_pipein(queue->urb.pipe) * 16 + 
+	int index = usb_pipein(queue->urb.pipe) * 16 +
 		    usb_pipeendpoint(queue->urb.pipe);
 
 	if (queue->urb.status == -EINPROGRESS)
@@ -377,7 +378,7 @@ static struct musb *gadget;
 
 int usb_gadget_handle_interrupts(int index)
 {
-	WATCHDOG_RESET();
+	schedule();
 	if (!gadget || !gadget->isr)
 		return -EINVAL;
 

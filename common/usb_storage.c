@@ -34,6 +34,7 @@
 
 #include <common.h>
 #include <blk.h>
+#include <bootdev.h>
 #include <command.h>
 #include <dm.h>
 #include <errno.h>
@@ -94,7 +95,7 @@ struct us_data {
 	int		action;			/* what to do */
 	int		ip_wanted;		/* needed */
 	int		*irq_handle;		/* for USB int requests */
-	unsigned int	irqpipe;	 	/* pipe for release_irq */
+	unsigned int	irqpipe;		/* pipe for release_irq */
 	unsigned char	irqmaxp;		/* max packed for irq Pipe */
 	unsigned char	irqinterval;		/* Intervall for IRQ Pipe */
 	struct scsi_cmd	*srb;			/* current srb */
@@ -143,10 +144,10 @@ int usb_stor_info(void)
 #if CONFIG_IS_ENABLED(BLK)
 	struct udevice *dev;
 
-	for (blk_first_device(IF_TYPE_USB, &dev);
+	for (blk_first_device(UCLASS_USB, &dev);
 	     dev;
 	     blk_next_device(&dev)) {
-		struct blk_desc *desc = dev_get_uclass_platdata(dev);
+		struct blk_desc *desc = dev_get_uclass_plat(dev);
 
 		printf("  Device %d: ", desc->devnum);
 		dev_print(desc);
@@ -203,11 +204,11 @@ static int usb_stor_probe_device(struct usb_device *udev)
 	debug("\n\nProbing for storage\n");
 #if CONFIG_IS_ENABLED(BLK)
 	/*
-	 * We store the us_data in the mass storage device's platdata. It
+	 * We store the us_data in the mass storage device's plat. It
 	 * is shared by all LUNs (block devices) attached to this mass storage
 	 * device.
 	 */
-	data = dev_get_platdata(udev->dev);
+	data = dev_get_plat(udev->dev);
 	if (!usb_storage_probe(udev, 0, data))
 		return 0;
 	max_lun = usb_get_max_lun(data);
@@ -218,14 +219,14 @@ static int usb_stor_probe_device(struct usb_device *udev)
 
 		snprintf(str, sizeof(str), "lun%d", lun);
 		ret = blk_create_devicef(udev->dev, "usb_storage_blk", str,
-					 IF_TYPE_USB, usb_max_devs, 512, 0,
+					 UCLASS_USB, usb_max_devs, 512, 0,
 					 &dev);
 		if (ret) {
 			debug("Cannot bind driver\n");
 			return ret;
 		}
 
-		blkdev = dev_get_uclass_platdata(dev);
+		blkdev = dev_get_uclass_plat(dev);
 		blkdev->target = 0xff;
 		blkdev->lun = lun;
 
@@ -238,6 +239,21 @@ static int usb_stor_probe_device(struct usb_device *udev)
 			ret = device_unbind(dev);
 			if (ret)
 				return ret;
+			continue;
+		}
+
+		ret = blk_probe_or_unbind(dev);
+		if (ret)
+			return ret;
+
+		ret = bootdev_setup_for_sibling_blk(dev, "usb_bootdev");
+		if (ret) {
+			int ret2;
+
+			ret2 = device_unbind(dev);
+			if (ret2)
+				return log_msg_ret("bootdev", ret2);
+			return log_msg_ret("bootdev", ret);
 		}
 	}
 #else
@@ -264,7 +280,7 @@ static int usb_stor_probe_device(struct usb_device *udev)
 
 		blkdev = &usb_dev_desc[usb_max_devs];
 		memset(blkdev, '\0', sizeof(struct blk_desc));
-		blkdev->if_type = IF_TYPE_USB;
+		blkdev->uclass_id = UCLASS_USB;
 		blkdev->devnum = usb_max_devs;
 		blkdev->part_type = PART_TYPE_UNKNOWN;
 		blkdev->target = 0xff;
@@ -431,8 +447,8 @@ static int us_one_transfer(struct us_data *us, int pipe, char *buf, int length)
 					return 0;
 				}
 				/* if our try counter reaches 0, bail out */
-					debug(" %ld, data %d\n",
-					      us->pusb_dev->status, partial);
+				debug(" %ld, data %d\n",
+				      us->pusb_dev->status, partial);
 				if (!maxtry--)
 						return result;
 			}
@@ -1147,7 +1163,7 @@ static unsigned long usb_stor_read(struct blk_desc *block_dev, lbaint_t blknr,
 		return 0;
 	/* Setup  device */
 #if CONFIG_IS_ENABLED(BLK)
-	block_dev = dev_get_uclass_platdata(dev);
+	block_dev = dev_get_uclass_plat(dev);
 	udev = dev_get_parent_priv(dev_get_parent(dev));
 	debug("\nusb_read: udev %d\n", block_dev->devnum);
 #else
@@ -1231,7 +1247,7 @@ static unsigned long usb_stor_write(struct blk_desc *block_dev, lbaint_t blknr,
 
 	/* Setup  device */
 #if CONFIG_IS_ENABLED(BLK)
-	block_dev = dev_get_uclass_platdata(dev);
+	block_dev = dev_get_uclass_plat(dev);
 	udev = dev_get_parent_priv(dev_get_parent(dev));
 	debug("\nusb_read: udev %d\n", block_dev->devnum);
 #else
@@ -1529,7 +1545,7 @@ U_BOOT_DRIVER(usb_mass_storage) = {
 	.of_match = usb_mass_storage_ids,
 	.probe = usb_mass_storage_probe,
 #if CONFIG_IS_ENABLED(BLK)
-	.platdata_auto_alloc_size	= sizeof(struct us_data),
+	.plat_auto	= sizeof(struct us_data),
 #endif
 };
 
@@ -1562,8 +1578,8 @@ U_BOOT_DRIVER(usb_storage_blk) = {
 };
 #else
 U_BOOT_LEGACY_BLK(usb) = {
-	.if_typename	= "usb",
-	.if_type	= IF_TYPE_USB,
+	.uclass_idname	= "usb",
+	.uclass_id	= UCLASS_USB,
 	.max_devs	= USB_MAX_STOR_DEV,
 	.desc		= usb_dev_desc,
 };

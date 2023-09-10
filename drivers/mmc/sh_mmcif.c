@@ -22,6 +22,7 @@
 #include <linux/io.h>
 #include <linux/sizes.h>
 #include "sh_mmcif.h"
+#include <asm/global_data.h>
 
 #define DRIVER_NAME	"sh_mmcif"
 
@@ -241,7 +242,7 @@ static int sh_mmcif_multi_read(struct sh_mmcif_host *host,
 		for (i = 0; i < blocksize / 4; i++)
 			*p++ = sh_mmcif_read(&host->regs->ce_data);
 
-		WATCHDOG_RESET();
+		schedule();
 	}
 	return 0;
 }
@@ -308,7 +309,7 @@ static int sh_mmcif_multi_write(struct sh_mmcif_host *host,
 		for (i = 0; i < blocksize / 4; i++)
 			sh_mmcif_write(*p++, &host->regs->ce_data);
 
-		WATCHDOG_RESET();
+		schedule();
 	}
 	return 0;
 }
@@ -522,7 +523,7 @@ static int sh_mmcif_send_cmd_common(struct sh_mmcif_host *host,
 {
 	int ret;
 
-	WATCHDOG_RESET();
+	schedule();
 
 	switch (cmd->cmdidx) {
 	case MMC_CMD_APP_CMD:
@@ -666,21 +667,21 @@ static const struct dm_mmc_ops sh_mmcif_dm_ops = {
 
 static int sh_mmcif_dm_bind(struct udevice *dev)
 {
-	struct sh_mmcif_plat *plat = dev_get_platdata(dev);
+	struct sh_mmcif_plat *plat = dev_get_plat(dev);
 
 	return mmc_bind(dev, &plat->mmc, &plat->cfg);
 }
 
 static int sh_mmcif_dm_probe(struct udevice *dev)
 {
-	struct sh_mmcif_plat *plat = dev_get_platdata(dev);
+	struct sh_mmcif_plat *plat = dev_get_plat(dev);
 	struct sh_mmcif_host *host = dev_get_priv(dev);
 	struct mmc_uclass_priv *upriv = dev_get_uclass_priv(dev);
 	struct clk sh_mmcif_clk;
 	fdt_addr_t base;
 	int ret;
 
-	base = devfdt_get_addr(dev);
+	base = dev_read_addr(dev);
 	if (base == FDT_ADDR_T_NONE)
 		return -EINVAL;
 
@@ -743,8 +744,8 @@ U_BOOT_DRIVER(sh_mmcif_mmc) = {
 	.of_match		= sh_mmcif_sd_match,
 	.bind			= sh_mmcif_dm_bind,
 	.probe			= sh_mmcif_dm_probe,
-	.priv_auto_alloc_size	= sizeof(struct sh_mmcif_host),
-	.platdata_auto_alloc_size = sizeof(struct sh_mmcif_plat),
+	.priv_auto	= sizeof(struct sh_mmcif_host),
+	.plat_auto	= sizeof(struct sh_mmcif_plat),
 	.ops			= &sh_mmcif_dm_ops,
 };
 #endif

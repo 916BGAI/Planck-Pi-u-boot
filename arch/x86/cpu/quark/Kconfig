@@ -7,6 +7,7 @@ config INTEL_QUARK
 	select HAVE_RMU
 	select ARCH_EARLY_INIT_R
 	select ARCH_MISC_INIT
+	select DM_EVENT
 	imply ENABLE_MRC_CACHE
 	imply ETH_DESIGNWARE
 	imply ICH_SPI
@@ -130,8 +131,8 @@ config SYS_CAR_SIZE
 	  Space in bytes in eSRAM used as Cache-As-ARM (CAR).
 	  Note this size must not exceed eSRAM's total size.
 
-config X86_TSC_TIMER_EARLY_FREQ
+config X86_TSC_TIMER_FREQ
 	int
-	default 400
+	default 400000000
 
 endif

@@ -94,7 +94,7 @@ static int uniphier_fi2c_probe(struct udevice *dev)
 	fdt_addr_t addr;
 	struct uniphier_fi2c_priv *priv = dev_get_priv(dev);
 
-	addr = devfdt_get_addr(dev);
+	addr = dev_read_addr(dev);
 	if (addr == FDT_ADDR_T_NONE)
 		return -EINVAL;
 
@@ -130,12 +130,12 @@ static int wait_for_irq(struct uniphier_fi2c_priv *priv, u32 flags,
 	if (irq & I2C_INT_AL) {
 		dev_dbg(priv->dev, "error: arbitration lost\n");
 		*stop = false;
-		return ret;
+		return -EDEADLK;
 	}
 
 	if (irq & I2C_INT_NA) {
 		dev_dbg(priv->dev, "error: no answer\n");
-		return ret;
+		return -ENODATA;
 	}
 
 	return 0;
@@ -326,6 +326,6 @@ U_BOOT_DRIVER(uniphier_fi2c) = {
 	.id = UCLASS_I2C,
 	.of_match = uniphier_fi2c_of_match,
 	.probe = uniphier_fi2c_probe,
-	.priv_auto_alloc_size = sizeof(struct uniphier_fi2c_priv),
+	.priv_auto	= sizeof(struct uniphier_fi2c_priv),
 	.ops = &uniphier_fi2c_ops,
 };

@@ -11,6 +11,8 @@
 #include <malloc.h>
 #include <asm/e820.h>
 #include <asm/arch/qemu.h>
+#include <asm/global_data.h>
+#include <linux/sizes.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 

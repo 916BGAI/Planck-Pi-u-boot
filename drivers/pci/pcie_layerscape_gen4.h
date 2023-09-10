@@ -9,15 +9,14 @@
 #ifndef _PCIE_LAYERSCAPE_GEN4_H_
 #define _PCIE_LAYERSCAPE_GEN4_H_
 #include <pci.h>
-#include <dm.h>
 #include <linux/bitops.h>
 
-#ifndef CONFIG_SYS_PCI_MEMORY_SIZE
-#define CONFIG_SYS_PCI_MEMORY_SIZE		(4 * 1024 * 1024 * 1024ULL)
+#ifndef CFG_SYS_PCI_MEMORY_SIZE
+#define CFG_SYS_PCI_MEMORY_SIZE		(4 * 1024 * 1024 * 1024ULL)
 #endif
 
-#ifndef CONFIG_SYS_PCI_EP_MEMORY_BASE
-#define CONFIG_SYS_PCI_EP_MEMORY_BASE		CONFIG_SYS_LOAD_ADDR
+#ifndef CFG_SYS_PCI_EP_MEMORY_BASE
+#define CFG_SYS_PCI_EP_MEMORY_BASE		CONFIG_SYS_LOAD_ADDR
 #endif
 
 #define PCIE_PF_NUM				2

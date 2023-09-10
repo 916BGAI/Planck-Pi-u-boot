@@ -17,6 +17,7 @@ enum conf_type {
 	FSP_UINT8,
 	FSP_UINT16,
 	FSP_UINT32,
+	FSP_UINT64,
 	FSP_STRING,
 	FSP_LPDDR4_SWIZZLE,
 };
@@ -85,7 +86,7 @@ struct lpddr4_swizzle_cfg {
  * fsp_m_update_config_from_dtb() - Read FSP-M config from devicetree node
  * @node: Valid node reference to read property from
  * @cfg:  Pointer to FSP-M config structure
- * @return 0 on success, -ve on error
+ * Return: 0 on success, -ve on error
  *
  * This function reads the configuration for FSP-M from the provided
  * devicetree node and saves it in the FSP-M configuration structure.
@@ -98,7 +99,7 @@ int fsp_m_update_config_from_dtb(ofnode node, struct fsp_m_config *cfg);
  * fsp_s_update_config_from_dtb() - Read FSP-S config from devicetree node
  * @node: Valid node reference to read property from
  * @cfg:  Pointer to FSP-S config structure
- * @return 0 on success, -ve on error
+ * Return: 0 on success, -ve on error
  *
  * This function reads the configuration for FSP-S from the provided
  * devicetree node and saves it in the FSP-S configuration structure.

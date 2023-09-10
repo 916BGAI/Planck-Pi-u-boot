@@ -13,6 +13,7 @@
 #include <asm/arch/imx-regs.h>
 #include <asm/arch/mx6-pins.h>
 #include <asm/arch/sys_proto.h>
+#include <asm/global_data.h>
 #include <asm/gpio.h>
 #include <asm/mach-imx/iomux-v3.h>
 #include <asm/io.h>
@@ -141,7 +142,7 @@ static int setup_fec(void)
 	return 0;
 }
 
-int board_eth_init(bd_t *bis)
+int board_eth_init(struct bd_info *bis)
 {
 	imx_iomux_v3_setup_multiple_pads(fec1_pads, ARRAY_SIZE(fec1_pads));
 	setup_fec();
@@ -319,7 +320,10 @@ int board_late_init(void)
 
 int checkboard(void)
 {
+#ifdef CONFIG_NXP_BOARD_REVISION
 	printf("Board: MX6SX SABRE SDB rev%c\n", nxp_board_rev_string());
-
+#else
+       puts("Board: MX6SX SABRE SDB");
+#endif
 	return 0;
 }

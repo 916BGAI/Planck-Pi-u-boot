@@ -16,10 +16,6 @@
 #include <fsl_usb.h>
 #include <fdt_support.h>
 
-#ifndef CONFIG_USB_MAX_CONTROLLER_COUNT
-#define CONFIG_USB_MAX_CONTROLLER_COUNT 1
-#endif
-
 /* USB Controllers */
 #define FSL_USB2_MPH	"fsl-usb2-mph"
 #define FSL_USB2_DR	"fsl-usb2-dr"
@@ -132,7 +128,7 @@ static int fsl_fdt_fixup_erratum(int *usb_erratum_off, void *blob,
 	return 0;
 }
 
-void fsl_fdt_fixup_dr_usb(void *blob, bd_t *bd)
+void fsl_fdt_fixup_dr_usb(void *blob, struct bd_info *bd)
 {
 	static const char * const modes[] = { "host", "peripheral", "otg" };
 	static const char * const phys[] = { "ulpi", "utmi", "utmi_dual" };

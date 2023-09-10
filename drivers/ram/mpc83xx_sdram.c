@@ -10,6 +10,7 @@
 #include <log.h>
 #include <ram.h>
 #include <asm/bitops.h>
+#include <asm/global_data.h>
 #include <dt-bindings/memory/mpc83xx-sdram.h>
 
 DECLARE_GLOBAL_DATA_PTR;
@@ -117,12 +118,7 @@ int dram_init(void)
 
 phys_size_t get_effective_memsize(void)
 {
-	if (!IS_ENABLED(CONFIG_VERY_BIG_RAM))
-		return gd->ram_size;
-
-	/* Limit stack to what we can reasonable map */
-	return ((gd->ram_size > CONFIG_MAX_MEM_MAPPED) ?
-		CONFIG_MAX_MEM_MAPPED : gd->ram_size);
+	return gd->ram_size;
 }
 
 /**
@@ -305,7 +301,7 @@ static int mpc83xx_sdram_spd_init(ofnode node, u32 cs, u32 mapaddr, u32 size)
 	return 0;
 }
 
-static int mpc83xx_sdram_ofdata_to_platdata(struct udevice *dev)
+static int mpc83xx_sdram_of_to_plat(struct udevice *dev)
 {
 	return 0;
 }
@@ -1093,7 +1089,7 @@ U_BOOT_DRIVER(mpc83xx_sdram) = {
 	.id = UCLASS_RAM,
 	.of_match = mpc83xx_sdram_ids,
 	.ops = &mpc83xx_sdram_ops,
-	.ofdata_to_platdata = mpc83xx_sdram_ofdata_to_platdata,
+	.of_to_plat = mpc83xx_sdram_of_to_plat,
 	.probe = mpc83xx_sdram_probe,
-	.priv_auto_alloc_size = sizeof(struct mpc83xx_sdram_priv),
+	.priv_auto	= sizeof(struct mpc83xx_sdram_priv),
 };

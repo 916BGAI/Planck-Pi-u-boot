@@ -285,7 +285,7 @@ static int zynq_nand_init_nand_flash(struct mtd_info *mtd, int option)
 {
 	struct nand_chip *nand_chip = mtd_to_nand(mtd);
 	struct nand_drv *smc = nand_get_controller_data(nand_chip);
-	u32 status;
+	int status;
 
 	/* disable interrupts */
 	writel(ZYNQ_NAND_CLR_CONFIG, &smc->reg->cfr);
@@ -332,7 +332,7 @@ static int zynq_nand_calculate_hwecc(struct mtd_info *mtd, const u8 *data,
 	struct nand_drv *smc = nand_get_controller_data(nand_chip);
 	u32 ecc_value = 0;
 	u8 ecc_reg, ecc_byte;
-	u32 ecc_status;
+	int ecc_status;
 
 	/* Wait till the ECC operation is complete */
 	ecc_status = zynq_nand_waitfor_ecc_completion(mtd);
@@ -1085,14 +1085,17 @@ static int zynq_nand_probe(struct udevice *dev)
 	int ondie_ecc_enabled = 0;
 	int is_16bit_bw;
 
-	smc->reg = (struct zynq_nand_smc_regs *)dev_read_addr(dev);
-	of_nand = dev_read_subnode(dev, "flash@e1000000");
+	smc->reg = dev_read_addr_ptr(dev);
+	of_nand = dev_read_subnode(dev, "nand-controller@0,0");
 	if (!ofnode_valid(of_nand)) {
-		printf("Failed to find nand node in dt\n");
-		return -ENODEV;
+		of_nand = dev_read_subnode(dev, "flash@e1000000");
+		if (!ofnode_valid(of_nand)) {
+			printf("Failed to find nand node in dt\n");
+			return -ENODEV;
+		}
 	}
 
-	if (!ofnode_is_available(of_nand)) {
+	if (!ofnode_is_enabled(of_nand)) {
 		debug("Nand node in dt disabled\n");
 		return dm_scan_fdt_dev(dev);
 	}
@@ -1206,12 +1209,10 @@ static int zynq_nand_probe(struct udevice *dev)
 		nand_chip->options |= NAND_SUBPAGE_READ;
 
 		/* On-Die ECC spare bytes offset 8 is used for ECC codes */
-		if (ondie_ecc_enabled) {
-			nand_chip->ecc.layout = &ondie_nand_oob_64;
-			/* Use the BBT pattern descriptors */
-			nand_chip->bbt_td = &bbt_main_descr;
-			nand_chip->bbt_md = &bbt_mirror_descr;
-		}
+		nand_chip->ecc.layout = &ondie_nand_oob_64;
+		/* Use the BBT pattern descriptors */
+		nand_chip->bbt_td = &bbt_main_descr;
+		nand_chip->bbt_md = &bbt_mirror_descr;
 	} else {
 		/* Hardware ECC generates 3 bytes ECC code for each 512 bytes */
 		nand_chip->ecc.mode = NAND_ECC_HW;
@@ -1282,11 +1283,11 @@ static const struct udevice_id zynq_nand_dt_ids[] = {
 };
 
 U_BOOT_DRIVER(zynq_nand) = {
-	.name = "zynq-nand",
+	.name = "zynq_nand",
 	.id = UCLASS_MTD,
 	.of_match = zynq_nand_dt_ids,
 	.probe = zynq_nand_probe,
-	.priv_auto_alloc_size = sizeof(struct zynq_nand_info),
+	.priv_auto	= sizeof(struct zynq_nand_info),
 };
 
 void board_nand_init(void)
@@ -1295,7 +1296,7 @@ void board_nand_init(void)
 	int ret;
 
 	ret = uclass_get_device_by_driver(UCLASS_MTD,
-					  DM_GET_DRIVER(zynq_nand), &dev);
+					  DM_DRIVER_GET(zynq_nand), &dev);
 	if (ret && ret != -ENODEV)
 		pr_err("Failed to initialize %s. (error %d)\n", dev->name, ret);
 }

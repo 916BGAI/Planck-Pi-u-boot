@@ -103,6 +103,13 @@ void board_init_f(ulong dummy)
 {
 	int ret;
 
+	if (IS_ENABLED(CONFIG_OF_CONTROL)) {
+		ret = spl_early_init();
+		if (ret) {
+			debug("spl_early_init() failed: %d\n", ret);
+			hang();
+		}
+	}
 	switch_to_main_crystal_osc();
 
 #ifdef CONFIG_SAMA5D2
@@ -117,7 +124,7 @@ void board_init_f(ulong dummy)
 	/* PMC configuration */
 	at91_pmc_init();
 
-	at91_clock_init(CONFIG_SYS_AT91_MAIN_CLOCK);
+	at91_clock_init(CFG_SYS_AT91_MAIN_CLOCK);
 
 	matrix_init();
 

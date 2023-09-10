@@ -31,6 +31,12 @@ ENTRY(save_boot_params)
 	b	save_boot_params_ret
 ENDPROC(save_boot_params)
 
+.pushsection .text.s_init, "ax"
+WEAK(s_init)
+	ret
+ENDPROC(s_init)
+.popsection
+
 ENTRY(lowlevel_init)
 	mov	x29, lr			/* Save LR */
 
@@ -58,7 +64,7 @@ ENTRY(lowlevel_init)
 #endif
 #endif
 
-	branch_if_master x0, x1, 2f
+	branch_if_master x0, 2f
 
 	/*
 	 * Slave should wait for master clearing spin table.

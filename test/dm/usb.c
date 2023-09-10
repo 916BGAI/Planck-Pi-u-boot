@@ -14,6 +14,7 @@
 #include <dm/device-internal.h>
 #include <dm/test.h>
 #include <dm/uclass-internal.h>
+#include <test/test.h>
 #include <test/ut.h>
 
 struct keyboard_test_data {
@@ -33,7 +34,7 @@ static int dm_test_usb_base(struct unit_test_state *uts)
 
 	return 0;
 }
-DM_TEST(dm_test_usb_base, DM_TESTF_SCAN_PDATA | DM_TESTF_SCAN_FDT);
+DM_TEST(dm_test_usb_base, UT_TESTF_SCAN_PDATA | UT_TESTF_SCAN_FDT);
 
 /*
  * Test that we can use the flash stick. This is more of a functional test. It
@@ -42,25 +43,47 @@ DM_TEST(dm_test_usb_base, DM_TESTF_SCAN_PDATA | DM_TESTF_SCAN_FDT);
  */
 static int dm_test_usb_flash(struct unit_test_state *uts)
 {
-	struct udevice *dev;
-	struct blk_desc *dev_desc;
+	struct blk_desc *dev_desc, *chk;
+	struct udevice *dev, *blk;
 	char cmp[1024];
 
 	state_set_skip_delays(true);
 	ut_assertok(usb_init());
 	ut_assertok(uclass_get_device(UCLASS_MASS_STORAGE, 0, &dev));
 	ut_assertok(blk_get_device_by_str("usb", "0", &dev_desc));
+	chk = blk_get_by_device(dev);
+	ut_asserteq_ptr(chk, dev_desc);
+
+	ut_assertok(device_find_first_child_by_uclass(dev, UCLASS_BLK, &blk));
+	ut_asserteq_ptr(chk, blk_get_by_device(dev));
 
 	/* Read a few blocks and look for the string we expect */
 	ut_asserteq(512, dev_desc->blksz);
 	memset(cmp, '\0', sizeof(cmp));
-	ut_asserteq(2, blk_dread(dev_desc, 0, 2, cmp));
-	ut_assertok(strcmp(cmp, "this is a test"));
+	ut_asserteq(2, blk_read(blk, 0, 2, cmp));
+	ut_asserteq_str("this is a test", cmp);
+
+	strcpy(cmp, "another test");
+	ut_asserteq(1, blk_write(blk, 1, 1, cmp));
+
+	memset(cmp, '\0', sizeof(cmp));
+	ut_asserteq(2, blk_read(blk, 0, 2, cmp));
+	ut_asserteq_str("this is a test", cmp);
+	ut_asserteq_str("another test", cmp + 512);
+
+	memset(cmp, '\0', sizeof(cmp));
+	ut_asserteq(1, blk_write(blk, 1, 1, cmp));
+
+	memset(cmp, '\0', sizeof(cmp));
+	ut_asserteq(2, blk_read(blk, 0, 2, cmp));
+	ut_asserteq_str("this is a test", cmp);
+	ut_asserteq_str("", cmp + 512);
+
 	ut_assertok(usb_stop());
 
 	return 0;
 }
-DM_TEST(dm_test_usb_flash, DM_TESTF_SCAN_PDATA | DM_TESTF_SCAN_FDT);
+DM_TEST(dm_test_usb_flash, UT_TESTF_SCAN_PDATA | UT_TESTF_SCAN_FDT);
 
 /* test that we can handle multiple storage devices */
 static int dm_test_usb_multi(struct unit_test_state *uts)
@@ -76,7 +99,29 @@ static int dm_test_usb_multi(struct unit_test_state *uts)
 
 	return 0;
 }
-DM_TEST(dm_test_usb_multi, DM_TESTF_SCAN_PDATA | DM_TESTF_SCAN_FDT);
+DM_TEST(dm_test_usb_multi, UT_TESTF_SCAN_PDATA | UT_TESTF_SCAN_FDT);
+
+/* test that we have an associated ofnode with the usb device */
+static int dm_test_usb_fdt_node(struct unit_test_state *uts)
+{
+	struct udevice *dev;
+	ofnode node;
+
+	state_set_skip_delays(true);
+	ut_assertok(usb_init());
+	ut_assertok(uclass_get_device(UCLASS_MASS_STORAGE, 0, &dev));
+	node = ofnode_path("/usb@1/hub/usbstor@1");
+	ut_asserteq(1, ofnode_equal(node, dev_ofnode(dev)));
+	ut_assertok(uclass_get_device(UCLASS_MASS_STORAGE, 1, &dev));
+	ut_asserteq(1, ofnode_equal(ofnode_null(), dev_ofnode(dev)));
+	ut_assertok(uclass_get_device(UCLASS_MASS_STORAGE, 2, &dev));
+	node = ofnode_path("/usb@1/hub/usbstor@3");
+	ut_asserteq(1, ofnode_equal(node, dev_ofnode(dev)));
+	ut_assertok(usb_stop());
+
+	return 0;
+}
+DM_TEST(dm_test_usb_fdt_node, UT_TESTF_SCAN_PDATA | UT_TESTF_SCAN_FDT);
 
 static int count_usb_devices(void)
 {
@@ -120,7 +165,7 @@ static int dm_test_usb_stop(struct unit_test_state *uts)
 
 	return 0;
 }
-DM_TEST(dm_test_usb_stop, DM_TESTF_SCAN_PDATA | DM_TESTF_SCAN_FDT);
+DM_TEST(dm_test_usb_stop, UT_TESTF_SCAN_PDATA | UT_TESTF_SCAN_FDT);
 
 /**
  * dm_test_usb_keyb() - test USB keyboard driver
@@ -404,7 +449,7 @@ static int dm_test_usb_keyb(struct unit_test_state *uts)
 
 		for (c = pos->result; *c; ++c) {
 			ut_asserteq(1, tstc());
-			ut_asserteq(*c, getc());
+			ut_asserteq(*c, getchar());
 		}
 		ut_asserteq(0, tstc());
 	}
@@ -412,4 +457,4 @@ static int dm_test_usb_keyb(struct unit_test_state *uts)
 
 	return 0;
 }
-DM_TEST(dm_test_usb_keyb, DM_TESTF_SCAN_PDATA | DM_TESTF_SCAN_FDT);
+DM_TEST(dm_test_usb_keyb, UT_TESTF_SCAN_PDATA | UT_TESTF_SCAN_FDT);

@@ -13,11 +13,11 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 		ranges = <0x00000000 0xe0000000 0x10000000>;
-		u-boot,dm-pre-reloc;
+		bootph-all;
 
 		clocks {
 			compatible = "simple-bus";
-			u-boot,dm-pre-reloc;
+			bootph-all;
 
 			apbclk: apbclk {
 				compatible = "fixed-clock";
@@ -29,7 +29,7 @@
 				compatible = "fixed-clock";
 				clock-frequency = <33333333>;
 				#clock-cells = <0>;
-				u-boot,dm-pre-reloc;
+				bootph-all;
 			};
 
 			mmcclk_ciu: mmcclk-ciu {
@@ -90,14 +90,15 @@
 		};
 
 		spi0: spi@0 {
-			compatible = "snps,dw-apb-ssi";
+			compatible = "snps,axs10x-spi", "snps,dw-apb-ssi";
 			reg = <0x0 0x100>;
 			#address-cells = <1>;
 			#size-cells = <0>;
 			spi-max-frequency = <4000000>;
 			clocks = <&apbclk>;
 			clock-names = "spi_clk";
-			cs-gpio = <&cs_gpio 0>;
+			num-cs = <1>;
+			cs-gpios = <&cs_gpio 0>;
 			spi_flash@0 {
 				compatible = "jedec,spi-nor";
 				reg = <0>;

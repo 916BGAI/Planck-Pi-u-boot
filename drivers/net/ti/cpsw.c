@@ -17,6 +17,7 @@
 #include <cpsw.h>
 #include <dm/device_compat.h>
 #include <linux/bitops.h>
+#include <linux/compiler.h>
 #include <linux/errno.h>
 #include <asm/gpio.h>
 #include <asm/io.h>
@@ -78,10 +79,6 @@ struct cpsw_slave_regs {
 	u32	tx_pri_map;
 #ifdef CONFIG_AM33XX
 	u32	gap_thresh;
-#elif defined(CONFIG_TI814X)
-	u32	ts_ctl;
-	u32	ts_seq_ltype;
-	u32	ts_vlan;
 #endif
 	u32	sa_lo;
 	u32	sa_hi;
@@ -199,11 +196,7 @@ struct cpdma_chan {
 				((priv)->data)->slaves; slave++)
 
 struct cpsw_priv {
-#ifdef CONFIG_DM_ETH
 	struct udevice			*dev;
-#else
-	struct eth_device		*dev;
-#endif
 	struct cpsw_platform_data	*data;
 	int				host_port;
 
@@ -247,11 +240,11 @@ static inline void cpsw_ale_set_field(u32 *ale_entry, u32 start, u32 bits,
 }
 
 #define DEFINE_ALE_FIELD(name, start, bits)				\
-static inline int cpsw_ale_get_##name(u32 *ale_entry)			\
+static inline int __maybe_unused cpsw_ale_get_##name(u32 *ale_entry)	\
 {									\
 	return cpsw_ale_get_field(ale_entry, start, bits);		\
 }									\
-static inline void cpsw_ale_set_##name(u32 *ale_entry, u32 value)	\
+static inline void __maybe_unused cpsw_ale_set_##name(u32 *ale_entry, u32 value)	\
 {									\
 	cpsw_ale_set_field(ale_entry, start, bits, value);		\
 }
@@ -454,15 +447,10 @@ static inline void setbit_and_wait_for_clear32(void *addr)
 static void cpsw_set_slave_mac(struct cpsw_slave *slave,
 			       struct cpsw_priv *priv)
 {
-#ifdef CONFIG_DM_ETH
-	struct eth_pdata *pdata = dev_get_platdata(priv->dev);
+	struct eth_pdata *pdata = dev_get_plat(priv->dev);
 
 	writel(mac_hi(pdata->enetaddr), &slave->regs->sa_hi);
 	writel(mac_lo(pdata->enetaddr), &slave->regs->sa_lo);
-#else
-	__raw_writel(mac_hi(priv->dev->enetaddr), &slave->regs->sa_hi);
-	__raw_writel(mac_lo(priv->dev->enetaddr), &slave->regs->sa_lo);
-#endif
 }
 
 static int cpsw_slave_update_link(struct cpsw_slave *slave,
@@ -860,10 +848,8 @@ static int cpsw_phy_init(struct cpsw_priv *priv, struct cpsw_slave *slave)
 	}
 	phydev->advertising = phydev->supported;
 
-#ifdef CONFIG_DM_ETH
 	if (ofnode_valid(slave->data->phy_of_handle))
 		phydev->node = slave->data->phy_of_handle;
-#endif
 
 	priv->phydev = phydev;
 	phy_config(phydev);
@@ -915,7 +901,8 @@ int _cpsw_register(struct cpsw_priv *priv)
 		idx = idx + 1;
 	}
 
-	priv->bus = cpsw_mdio_init(priv->dev->name, data->mdio_base, 0, 0);
+	priv->bus = cpsw_mdio_init(priv->dev->name, data->mdio_base, 0, 0,
+				   false);
 	if (!priv->bus)
 		return -EFAULT;
 
@@ -927,87 +914,9 @@ int _cpsw_register(struct cpsw_priv *priv)
 	return 0;
 }
 
-#ifndef CONFIG_DM_ETH
-static int cpsw_init(struct eth_device *dev, bd_t *bis)
-{
-	struct cpsw_priv	*priv = dev->priv;
-
-	return _cpsw_init(priv, dev->enetaddr);
-}
-
-static void cpsw_halt(struct eth_device *dev)
-{
-	struct cpsw_priv *priv = dev->priv;
-
-	return _cpsw_halt(priv);
-}
-
-static int cpsw_send(struct eth_device *dev, void *packet, int length)
-{
-	struct cpsw_priv	*priv = dev->priv;
-
-	return _cpsw_send(priv, packet, length);
-}
-
-static int cpsw_recv(struct eth_device *dev)
-{
-	struct cpsw_priv *priv = dev->priv;
-	uchar *pkt = NULL;
-	int len;
-
-	len = _cpsw_recv(priv, &pkt);
-
-	if (len > 0) {
-		net_process_received_packet(pkt, len);
-		cpdma_submit(priv, &priv->rx_chan, pkt, PKTSIZE);
-	}
-
-	return len;
-}
-
-int cpsw_register(struct cpsw_platform_data *data)
-{
-	struct cpsw_priv	*priv;
-	struct eth_device	*dev;
-	int ret;
-
-	dev = calloc(sizeof(*dev), 1);
-	if (!dev)
-		return -ENOMEM;
-
-	priv = calloc(sizeof(*priv), 1);
-	if (!priv) {
-		free(dev);
-		return -ENOMEM;
-	}
-
-	priv->dev = dev;
-	priv->data = data;
-
-	strcpy(dev->name, "cpsw");
-	dev->iobase	= 0;
-	dev->init	= cpsw_init;
-	dev->halt	= cpsw_halt;
-	dev->send	= cpsw_send;
-	dev->recv	= cpsw_recv;
-	dev->priv	= priv;
-
-	eth_register(dev);
-
-	ret = _cpsw_register(priv);
-	if (ret < 0) {
-		eth_unregister(dev);
-		free(dev);
-		free(priv);
-		return ret;
-	}
-
-	return 1;
-}
-#else
 static int cpsw_eth_start(struct udevice *dev)
 {
-	struct eth_pdata *pdata = dev_get_platdata(dev);
+	struct eth_pdata *pdata = dev_get_plat(dev);
 	struct cpsw_priv *priv = dev_get_priv(dev);
 
 	return _cpsw_init(priv, pdata->enetaddr);
@@ -1169,7 +1078,7 @@ static void cpsw_phy_sel(struct cpsw_priv *priv, const char *compat,
 static int cpsw_eth_probe(struct udevice *dev)
 {
 	struct cpsw_priv *priv = dev_get_priv(dev);
-	struct eth_pdata *pdata = dev_get_platdata(dev);
+	struct eth_pdata *pdata = dev_get_plat(dev);
 
 	priv->dev = dev;
 	priv->data = pdata->priv_pdata;
@@ -1187,15 +1096,12 @@ static void cpsw_eth_of_parse_slave(struct cpsw_platform_data *data,
 {
 	struct ofnode_phandle_args out_args;
 	struct cpsw_slave_data *slave_data;
-	const char *phy_mode;
 	u32 phy_id[2];
 	int ret;
 
 	slave_data = &data->slave_data[slave_index];
 
-	phy_mode = ofnode_read_string(subnode, "phy-mode");
-	if (phy_mode)
-		slave_data->phy_if = phy_get_interface_by_name(phy_mode);
+	slave_data->phy_if = ofnode_read_phy_mode(subnode);
 
 	ret = ofnode_parse_phandle_with_args(subnode, "phy-handle",
 					     NULL, 0, 0, &out_args);
@@ -1216,9 +1122,9 @@ static void cpsw_eth_of_parse_slave(struct cpsw_platform_data *data,
 							"max-speed", 0);
 }
 
-static int cpsw_eth_ofdata_to_platdata(struct udevice *dev)
+static int cpsw_eth_of_to_plat(struct udevice *dev)
 {
-	struct eth_pdata *pdata = dev_get_platdata(dev);
+	struct eth_pdata *pdata = dev_get_plat(dev);
 	struct cpsw_platform_data *data;
 	struct gpio_desc *mode_gpios;
 	int slave_index = 0;
@@ -1341,11 +1247,8 @@ static int cpsw_eth_ofdata_to_platdata(struct udevice *dev)
 	}
 
 	pdata->phy_interface = data->slave_data[data->active_slave].phy_if;
-	if (pdata->phy_interface == -1) {
-		debug("%s: Invalid PHY interface '%s'\n", __func__,
-		      phy_string_for_interface(pdata->phy_interface));
+	if (pdata->phy_interface == PHY_INTERFACE_MODE_NA)
 		return -EINVAL;
-	}
 
 	return 0;
 }
@@ -1370,12 +1273,11 @@ U_BOOT_DRIVER(eth_cpsw) = {
 	.id	= UCLASS_ETH,
 #if CONFIG_IS_ENABLED(OF_CONTROL)
 	.of_match = cpsw_eth_ids,
-	.ofdata_to_platdata = cpsw_eth_ofdata_to_platdata,
-	.platdata_auto_alloc_size = sizeof(struct eth_pdata),
+	.of_to_plat = cpsw_eth_of_to_plat,
+	.plat_auto	= sizeof(struct eth_pdata),
 #endif
 	.probe	= cpsw_eth_probe,
 	.ops	= &cpsw_eth_ops,
-	.priv_auto_alloc_size = sizeof(struct cpsw_priv),
+	.priv_auto	= sizeof(struct cpsw_priv),
 	.flags = DM_FLAG_ALLOC_PRIV_DMA | DM_FLAG_PRE_RELOC,
 };
-#endif /* CONFIG_DM_ETH */

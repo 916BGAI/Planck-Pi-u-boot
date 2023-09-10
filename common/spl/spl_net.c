@@ -15,7 +15,7 @@
 #include <net.h>
 #include <linux/libfdt.h>
 
-#if defined(CONFIG_SPL_ETH_SUPPORT) || defined(CONFIG_SPL_USB_ETHER)
+#if defined(CONFIG_SPL_ETH) || defined(CONFIG_SPL_USB_ETHER)
 static ulong spl_net_load_read(struct spl_load_info *load, ulong sector,
 			       ulong count, void *buf)
 {
@@ -28,7 +28,7 @@ static ulong spl_net_load_read(struct spl_load_info *load, ulong sector,
 static int spl_net_load_image(struct spl_image_info *spl_image,
 			      struct spl_boot_device *bootdev)
 {
-	struct image_header *header = (struct image_header *)image_load_addr;
+	struct legacy_img_hdr *header = (struct legacy_img_hdr *)image_load_addr;
 	int rv;
 
 	env_init();
@@ -58,7 +58,7 @@ static int spl_net_load_image(struct spl_image_info *spl_image,
 	} else {
 		debug("Legacy image\n");
 
-		rv = spl_parse_image_header(spl_image, header);
+		rv = spl_parse_image_header(spl_image, bootdev, header);
 		if (rv)
 			return rv;
 
@@ -69,7 +69,7 @@ static int spl_net_load_image(struct spl_image_info *spl_image,
 }
 #endif
 
-#ifdef CONFIG_SPL_ETH_SUPPORT
+#ifdef CONFIG_SPL_ETH
 int spl_net_load_image_cpgmac(struct spl_image_info *spl_image,
 			      struct spl_boot_device *bootdev)
 {

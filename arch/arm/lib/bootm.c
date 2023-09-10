@@ -16,9 +16,8 @@
 #include <command.h>
 #include <cpu_func.h>
 #include <dm.h>
-#include <hang.h>
-#include <lmb.h>
 #include <log.h>
+#include <asm/global_data.h>
 #include <dm/root.h>
 #include <env.h>
 #include <image.h>
@@ -42,50 +41,6 @@
 DECLARE_GLOBAL_DATA_PTR;
 
 static struct tag *params;
-
-static ulong get_sp(void)
-{
-	ulong ret;
-
-	asm("mov %0, sp" : "=r"(ret) : );
-	return ret;
-}
-
-void arch_lmb_reserve(struct lmb *lmb)
-{
-	ulong sp, bank_end;
-	int bank;
-
-	/*
-	 * Booting a (Linux) kernel image
-	 *
-	 * Allocate space for command line and board info - the
-	 * address should be as high as possible within the reach of
-	 * the kernel (see CONFIG_SYS_BOOTMAPSZ settings), but in unused
-	 * memory, which means far enough below the current stack
-	 * pointer.
-	 */
-	sp = get_sp();
-	debug("## Current stack ends at 0x%08lx ", sp);
-
-	/* adjust sp by 4K to be safe */
-	sp -= 4096;
-	for (bank = 0; bank < CONFIG_NR_DRAM_BANKS; bank++) {
-		if (!gd->bd->bi_dram[bank].size ||
-		    sp < gd->bd->bi_dram[bank].start)
-			continue;
-		/* Watch out for RAM at end of address space! */
-		bank_end = gd->bd->bi_dram[bank].start +
-			gd->bd->bi_dram[bank].size - 1;
-		if (sp > bank_end)
-			continue;
-		if (bank_end > gd->ram_top)
-			bank_end = gd->ram_top - 1;
-
-		lmb_reserve(lmb, sp, bank_end - sp + 1);
-		break;
-	}
-}
 
 __weak void board_quiesce_devices(void)
 {
@@ -119,12 +74,15 @@ static void announce_and_cleanup(int fake)
 	 * This may be useful for last-stage operations, like cancelling
 	 * of DMA operation or releasing device internal buffers.
 	 */
+	dm_remove_devices_flags(DM_REMOVE_ACTIVE_ALL | DM_REMOVE_NON_VITAL);
+
+	/* Remove all active vital devices next */
 	dm_remove_devices_flags(DM_REMOVE_ACTIVE_ALL);
 
 	cleanup_before_linux();
 }
 
-static void setup_start_tag (bd_t *bd)
+static void setup_start_tag (struct bd_info *bd)
 {
 	params = (struct tag *)bd->bi_boot_params;
 
@@ -138,7 +96,7 @@ static void setup_start_tag (bd_t *bd)
 	params = tag_next (params);
 }
 
-static void setup_memory_tags(bd_t *bd)
+static void setup_memory_tags(struct bd_info *bd)
 {
 	int i;
 
@@ -153,7 +111,7 @@ static void setup_memory_tags(bd_t *bd)
 	}
 }
 
-static void setup_commandline_tag(bd_t *bd, char *commandline)
+static void setup_commandline_tag(struct bd_info *bd, char *commandline)
 {
 	char *p;
 
@@ -178,7 +136,8 @@ static void setup_commandline_tag(bd_t *bd, char *commandline)
 	params = tag_next (params);
 }
 
-static void setup_initrd_tag(bd_t *bd, ulong initrd_start, ulong initrd_end)
+static void setup_initrd_tag(struct bd_info *bd, ulong initrd_start,
+			     ulong initrd_end)
 {
 	/* an ATAG_INITRD node tells the kernel where the compressed
 	 * ramdisk can be found. ATAG_RDIMG is a better name, actually.
@@ -217,7 +176,7 @@ static void setup_revision_tag(struct tag **in_params)
 	params = tag_next (params);
 }
 
-static void setup_end_tag(bd_t *bd)
+static void setup_end_tag(struct bd_info *bd)
 {
 	params->hdr.tag = ATAG_NONE;
 	params->hdr.size = 0;
@@ -233,21 +192,18 @@ static void do_nonsec_virt_switch(void)
 }
 #endif
 
-__weak void board_prep_linux(bootm_headers_t *images) { }
+__weak void board_prep_linux(struct bootm_headers *images) { }
 
 /* Subcommand: PREP */
-static void boot_prep_linux(bootm_headers_t *images)
+static void boot_prep_linux(struct bootm_headers *images)
 {
 	char *commandline = env_get("bootargs");
 
-	if (IMAGE_ENABLE_OF_LIBFDT && images->ft_len) {
-#ifdef CONFIG_OF_LIBFDT
+	if (CONFIG_IS_ENABLED(OF_LIBFDT) && IS_ENABLED(CONFIG_LMB) && images->ft_len) {
 		debug("using: FDT\n");
 		if (image_setup_linux(images)) {
-			printf("FDT creation failed! hanging...");
-			hang();
+			panic("FDT creation failed!");
 		}
-#endif
 	} else if (BOOTM_ENABLE_TAGS) {
 		debug("using: ATAGS\n");
 		setup_start_tag(gd->bd);
@@ -278,8 +234,7 @@ static void boot_prep_linux(bootm_headers_t *images)
 		setup_board_tags(&params);
 		setup_end_tag(gd->bd);
 	} else {
-		printf("FDT and ATAGS support not compiled in - hanging\n");
-		hang();
+		panic("FDT and ATAGS support not compiled in\n");
 	}
 
 	board_prep_linux(images);
@@ -333,7 +288,7 @@ static void switch_to_el1(void)
 #endif
 
 /* Subcommand: GO */
-static void boot_jump_linux(bootm_headers_t *images, int flag)
+static void boot_jump_linux(struct bootm_headers *images, int flag)
 {
 #ifdef CONFIG_ARM64
 	void (*kernel_entry)(void *fdt_addr, void *res0, void *res1,
@@ -399,7 +354,7 @@ static void boot_jump_linux(bootm_headers_t *images, int flag)
 	bootstage_mark(BOOTSTAGE_ID_RUN_OS);
 	announce_and_cleanup(fake);
 
-	if (IMAGE_ENABLE_OF_LIBFDT && images->ft_len)
+	if (CONFIG_IS_ENABLED(OF_LIBFDT) && images->ft_len)
 		r2 = (unsigned long)images->ft_addr;
 	else
 		r2 = gd->bd->bi_boot_params;
@@ -424,7 +379,7 @@ static void boot_jump_linux(bootm_headers_t *images, int flag)
  * they are called if subcommand is equal 0.
  */
 int do_bootm_linux(int flag, int argc, char *const argv[],
-		   bootm_headers_t *images)
+		   struct bootm_headers *images)
 {
 	/* No need for those on ARM */
 	if (flag & BOOTM_STATE_OS_BD_T || flag & BOOTM_STATE_OS_CMDLINE)
@@ -446,7 +401,7 @@ int do_bootm_linux(int flag, int argc, char *const argv[],
 }
 
 #if defined(CONFIG_BOOTM_VXWORKS)
-void boot_prep_vxworks(bootm_headers_t *images)
+void boot_prep_vxworks(struct bootm_headers *images)
 {
 #if defined(CONFIG_OF_LIBFDT)
 	int off;
@@ -461,7 +416,8 @@ void boot_prep_vxworks(bootm_headers_t *images)
 #endif
 	cleanup_before_linux();
 }
-void boot_jump_vxworks(bootm_headers_t *images)
+
+void boot_jump_vxworks(struct bootm_headers *images)
 {
 #if defined(CONFIG_ARM64) && defined(CONFIG_ARMV8_PSCI)
 	armv8_setup_psci();

@@ -6,20 +6,23 @@
 #include <dm.h>
 #include <hang.h>
 #include <init.h>
+#include <led.h>
 #include <log.h>
 #include <syscon.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
 #include <asm/arch-rockchip/bootrom.h>
 #include <asm/arch-rockchip/clock.h>
 #include <asm/arch-rockchip/grf_rk3188.h>
 #include <asm/arch-rockchip/hardware.h>
+#include <dm/ofnode.h>
 #include <linux/err.h>
 
 #define GRF_BASE	0x20008000
 
 const char * const boot_devices[BROM_LAST_BOOTSOURCE + 1] = {
-	[BROM_BOOTSOURCE_EMMC] = "/dwmmc@1021c000",
-	[BROM_BOOTSOURCE_SD] = "/dwmmc@10214000",
+	[BROM_BOOTSOURCE_EMMC] = "/mmc@1021c000",
+	[BROM_BOOTSOURCE_SD] = "/mmc@10214000",
 };
 
 #ifdef CONFIG_DEBUG_UART_BOARD_INIT
@@ -112,7 +115,7 @@ static int setup_led(void)
 	char *led_name;
 	int ret;
 
-	led_name = fdtdec_get_config_string(gd->fdt_blob, "u-boot,boot-led");
+	led_name = ofnode_conf_read_str("u-boot,boot-led");
 	if (!led_name)
 		return 0;
 	ret = led_get_by_label(led_name, &dev);
@@ -120,7 +123,7 @@ static int setup_led(void)
 		debug("%s: get=%d\n", __func__, ret);
 		return ret;
 	}
-	ret = led_set_on(dev, 1);
+	ret = led_set_state(dev, LEDST_ON);
 	if (ret)
 		return ret;
 #endif

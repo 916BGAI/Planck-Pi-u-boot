@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * (C) Copyright 2009
- * Vipin Kumar, ST Micoelectronics, vipin.kumar@st.com.
+ * Vipin Kumar, STMicroelectronics, vipin.kumar@st.com.
  */
 
 #ifndef __DW_I2C_H_
@@ -112,7 +112,7 @@ struct i2c_regs {
 #define IC_TX_EMPTY		0x0010
 #define IC_TX_OVER		0x0008
 #define IC_RX_FULL		0x0004
-#define IC_RX_OVER 		0x0002
+#define IC_RX_OVER		0x0002
 #define IC_RX_UNDER		0x0001
 
 /* fifo threshold register definitions */
@@ -205,12 +205,27 @@ struct dw_i2c {
 #if CONFIG_IS_ENABLED(CLK)
 	struct clk clk;
 #endif
+	struct dw_i2c_speed_config config;
 };
 
 extern const struct dm_i2c_ops designware_i2c_ops;
 
 int designware_i2c_probe(struct udevice *bus);
 int designware_i2c_remove(struct udevice *dev);
-int designware_i2c_ofdata_to_platdata(struct udevice *bus);
+int designware_i2c_of_to_plat(struct udevice *bus);
+
+/**
+ * dw_i2c_gen_speed_config() - Calculate config info from requested speed
+ *
+ * Calculate the speed config from the given @speed_hz and return it so that
+ * it can be incorporated in ACPI tables
+ *
+ * @dev: I2C bus to check
+ * @speed_hz: Requested speed in Hz
+ * @config: Returns config to use for that speed
+ * Return: 0 if OK, -ve on error
+ */
+int dw_i2c_gen_speed_config(const struct udevice *dev, int speed_hz,
+			    struct dw_i2c_speed_config *config);
 
 #endif /* __DW_I2C_H_ */

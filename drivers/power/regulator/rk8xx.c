@@ -12,6 +12,7 @@
 #include <dm.h>
 #include <errno.h>
 #include <log.h>
+#include <linux/delay.h>
 #include <power/rk8xx_pmic.h>
 #include <power/pmic.h>
 #include <power/regulator.h>
@@ -616,6 +617,9 @@ static int _ldo_set_enable(struct udevice *pmic, int ldo, bool enable)
 		break;
 	}
 
+	if (enable)
+		udelay(500);
+
 	return ret;
 }
 
@@ -1034,9 +1038,9 @@ static int switch_set_value(struct udevice *dev, int uvolt)
 
 static int rk8xx_buck_probe(struct udevice *dev)
 {
-	struct dm_regulator_uclass_platdata *uc_pdata;
+	struct dm_regulator_uclass_plat *uc_pdata;
 
-	uc_pdata = dev_get_uclass_platdata(dev);
+	uc_pdata = dev_get_uclass_plat(dev);
 
 	uc_pdata->type = REGULATOR_TYPE_BUCK;
 	uc_pdata->mode_count = 0;
@@ -1046,9 +1050,9 @@ static int rk8xx_buck_probe(struct udevice *dev)
 
 static int rk8xx_ldo_probe(struct udevice *dev)
 {
-	struct dm_regulator_uclass_platdata *uc_pdata;
+	struct dm_regulator_uclass_plat *uc_pdata;
 
-	uc_pdata = dev_get_uclass_platdata(dev);
+	uc_pdata = dev_get_uclass_plat(dev);
 
 	uc_pdata->type = REGULATOR_TYPE_LDO;
 	uc_pdata->mode_count = 0;
@@ -1058,9 +1062,9 @@ static int rk8xx_ldo_probe(struct udevice *dev)
 
 static int rk8xx_switch_probe(struct udevice *dev)
 {
-	struct dm_regulator_uclass_platdata *uc_pdata;
+	struct dm_regulator_uclass_plat *uc_pdata;
 
-	uc_pdata = dev_get_uclass_platdata(dev);
+	uc_pdata = dev_get_uclass_plat(dev);
 
 	uc_pdata->type = REGULATOR_TYPE_FIXED;
 	uc_pdata->mode_count = 0;

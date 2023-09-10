@@ -5,13 +5,15 @@
 # Written by Simon Glass <sjg@chromium.org>
 #
 
+from enum import IntEnum
 import struct
 import sys
 
 from dtoc import fdt_util
 import libfdt
 from libfdt import QUIET_NOTFOUND
-from patman import tools
+from u_boot_pylib import tools
+from u_boot_pylib import tout
 
 # This deals with a device tree, presenting it as an assortment of Node and
 # Prop objects, representing nodes and properties, respectively. This file
@@ -22,7 +24,28 @@ from patman import tools
 # so it is fairly efficient.
 
 # A list of types we support
-(TYPE_BYTE, TYPE_INT, TYPE_STRING, TYPE_BOOL, TYPE_INT64) = range(5)
+class Type(IntEnum):
+    # Types in order from widest to narrowest
+    (BYTE, INT, STRING, BOOL, INT64) = range(5)
+
+    def needs_widening(self, other):
+        """Check if this type needs widening to hold a value from another type
+
+        A wider type is one that can hold a wider array of information than
+        another one, or is less restrictive, so it can hold the information of
+        another type as well as its own. This is similar to the concept of
+        type-widening in C.
+
+        This uses a simple arithmetic comparison, since type values are in order
+        from widest (BYTE) to narrowest (INT64).
+
+        Args:
+            other: Other type to compare against
+
+        Return:
+            True if the other type is wider
+        """
+        return self.value > other.value
 
 def CheckErr(errnum, msg):
     if errnum:
@@ -41,9 +64,9 @@ def BytesToValue(data):
             Type of data
             Data, either a single element or a list of elements. Each element
             is one of:
-                TYPE_STRING: str/bytes value from the property
-                TYPE_INT: a byte-swapped integer stored as a 4-byte str/bytes
-                TYPE_BYTE: a byte stored as a single-byte str/bytes
+                Type.STRING: str/bytes value from the property
+                Type.INT: a byte-swapped integer stored as a 4-byte str/bytes
+                Type.BYTE: a byte stored as a single-byte str/bytes
     """
     data = bytes(data)
     size = len(data)
@@ -63,27 +86,29 @@ def BytesToValue(data):
         is_string = False
     if is_string:
         if count == 1: 
-            return TYPE_STRING, strings[0].decode()
+            return Type.STRING, strings[0].decode()
         else:
-            return TYPE_STRING, [s.decode() for s in strings[:-1]]
+            return Type.STRING, [s.decode() for s in strings[:-1]]
     if size % 4:
         if size == 1:
-            return TYPE_BYTE, tools.ToChar(data[0])
+            return Type.BYTE, chr(data[0])
         else:
-            return TYPE_BYTE, [tools.ToChar(ch) for ch in list(data)]
+            return Type.BYTE, [chr(ch) for ch in list(data)]
     val = []
     for i in range(0, size, 4):
         val.append(data[i:i + 4])
     if size == 4:
-        return TYPE_INT, val[0]
+        return Type.INT, val[0]
     else:
-        return TYPE_INT, val
+        return Type.INT, val
 
 
 class Prop:
     """A device tree property
 
     Properties:
+        node: Node containing this property
+        offset: Offset of the property (None if still to be synced)
         name: Property name (as per the device tree)
         value: Property value as a string of bytes, or a list of strings of
             bytes
@@ -95,9 +120,9 @@ class Prop:
         self.name = name
         self.value = None
         self.bytes = bytes(data)
-        self.dirty = False
+        self.dirty = offset is None
         if not data:
-            self.type = TYPE_BOOL
+            self.type = Type.BOOL
             self.value = True
             return
         self.type, self.value = BytesToValue(bytes(data))
@@ -128,16 +153,37 @@ class Prop:
         update the current property to be like the second, since it is less
         specific.
         """
-        if newprop.type < self.type:
+        if self.type.needs_widening(newprop.type):
+
+            # A boolean has an empty value: if it exists it is True and if not
+            # it is False. So when widening we always start with an empty list
+            # since the only valid integer property would be an empty list of
+            # integers.
+            # e.g. this is a boolean:
+            #    some-prop;
+            # and it would be widened to int list by:
+            #    some-prop = <1 2>;
+            if self.type == Type.BOOL:
+                self.type = Type.INT
+                self.value = [self.GetEmpty(self.type)]
+            if self.type == Type.INT and newprop.type == Type.BYTE:
+                if type(self.value) == list:
+                    new_value = []
+                    for val in self.value:
+                        new_value += [chr(by) for by in val]
+                else:
+                    new_value = [chr(by) for by in self.value]
+                self.value = new_value
             self.type = newprop.type
 
-        if type(newprop.value) == list and type(self.value) != list:
-            self.value = [self.value]
+        if type(newprop.value) == list:
+            if type(self.value) != list:
+                self.value = [self.value]
 
-        if type(self.value) == list and len(newprop.value) > len(self.value):
-            val = self.GetEmpty(self.type)
-            while len(self.value) < len(newprop.value):
-                self.value.append(val)
+            if len(newprop.value) > len(self.value):
+                val = self.GetEmpty(self.type)
+                while len(self.value) < len(newprop.value):
+                    self.value.append(val)
 
     @classmethod
     def GetEmpty(self, type):
@@ -146,11 +192,11 @@ class Prop:
         Returns:
             A single value of the given type
         """
-        if type == TYPE_BYTE:
+        if type == Type.BYTE:
             return chr(0)
-        elif type == TYPE_INT:
+        elif type == Type.INT:
             return struct.pack('>I', 0);
-        elif type == TYPE_STRING:
+        elif type == Type.STRING:
             return ''
         else:
             return True
@@ -175,7 +221,7 @@ class Prop:
         """
         self.bytes = struct.pack('>I', val);
         self.value = self.bytes
-        self.type = TYPE_INT
+        self.type = Type.INT
         self.dirty = True
 
     def SetData(self, bytes):
@@ -201,23 +247,40 @@ class Prop:
         Raises:
             FdtException if auto_resize is False and there is not enough space
         """
-        if self._offset is None or self.dirty:
+        if self.dirty:
             node = self._node
+            tout.debug(f'sync {node.path}: {self.name}')
             fdt_obj = node._fdt._fdt_obj
+            node_name = fdt_obj.get_name(node._offset)
+            if node_name and node_name != node.name:
+                raise ValueError("Internal error, node '%s' name mismatch '%s'" %
+                                 (node.path, node_name))
+
             if auto_resize:
                 while fdt_obj.setprop(node.Offset(), self.name, self.bytes,
                                     (libfdt.NOSPACE,)) == -libfdt.NOSPACE:
-                    fdt_obj.resize(fdt_obj.totalsize() + 1024)
+                    fdt_obj.resize(fdt_obj.totalsize() + 1024 +
+                                   len(self.bytes))
                     fdt_obj.setprop(node.Offset(), self.name, self.bytes)
             else:
                 fdt_obj.setprop(node.Offset(), self.name, self.bytes)
+            self.dirty = False
 
+    def purge(self):
+        """Set a property offset to None
+
+        The property remains in the tree structure and will be recreated when
+        the FDT is synced
+        """
+        self._offset = None
+        self.dirty = True
 
 class Node:
     """A device tree node
 
     Properties:
-        offset: Integer offset in the device tree
+        parent: Parent Node
+        offset: Integer offset in the device tree (None if to be synced)
         name: Device tree node tname
         path: Full path to node, along with the node name itself
         _fdt: Device tree object
@@ -274,6 +337,11 @@ class Node:
         self.props = self._fdt.GetProps(self)
         phandle = fdt_obj.get_phandle(self.Offset())
         if phandle:
+            dup = self._fdt.phandle_to_node.get(phandle)
+            if dup:
+                raise ValueError(
+                    f'Duplicate phandle {phandle} in nodes {dup.path} and {self.path}')
+
             self._fdt.phandle_to_node[phandle] = self
 
         offset = fdt_obj.first_subnode(self.Offset(), QUIET_NOTFOUND)
@@ -296,8 +364,15 @@ class Node:
         fdt_obj = self._fdt._fdt_obj
         if self._offset != my_offset:
             self._offset = my_offset
+        name = fdt_obj.get_name(self._offset)
+        if name and self.name != name:
+            raise ValueError("Internal error, node '%s' name mismatch '%s'" %
+                             (self.path, name))
+
         offset = fdt_obj.first_subnode(self._offset, QUIET_NOTFOUND)
         for subnode in self.subnodes:
+            if subnode._offset is None:
+                continue
             if subnode.name != fdt_obj.get_name(offset):
                 raise ValueError('Internal error, node name mismatch %s != %s' %
                                  (subnode.name, fdt_obj.get_name(offset)))
@@ -311,8 +386,8 @@ class Node:
             p = fdt_obj.get_property_by_offset(poffset)
             prop = self.props.get(p.name)
             if not prop:
-                raise ValueError("Internal error, property '%s' missing, "
-                                 'offset %d' % (p.name, poffset))
+                raise ValueError("Internal error, node '%s' property '%s' missing, "
+                                 'offset %d' % (self.path, p.name, poffset))
             prop.RefreshOffset(poffset)
             poffset = fdt_obj.next_property_offset(poffset, QUIET_NOTFOUND)
 
@@ -338,7 +413,7 @@ class Node:
             prop_name: Name of property
         """
         self.props[prop_name] = Prop(self, None, prop_name,
-                                     tools.GetBytes(0, 4))
+                                     tools.get_bytes(0, 4))
 
     def AddEmptyProp(self, prop_name, len):
         """Add a property with a fixed data size, for filling in later
@@ -350,7 +425,7 @@ class Node:
             prop_name: Name of property
             len: Length of data in property
         """
-        value = tools.GetBytes(0, len)
+        value = tools.get_bytes(0, len)
         self.props[prop_name] = Prop(self, None, prop_name, value)
 
     def _CheckProp(self, prop_name):
@@ -410,6 +485,23 @@ class Node:
             val = val.encode('utf-8')
         self._CheckProp(prop_name).props[prop_name].SetData(val + b'\0')
 
+    def AddData(self, prop_name, val):
+        """Add a new property to a node
+
+        The device tree is marked dirty so that the value will be written to
+        the blob on the next sync.
+
+        Args:
+            prop_name: Name of property to add
+            val: Bytes value of property
+
+        Returns:
+            Prop added
+        """
+        prop = Prop(self, None, prop_name, val)
+        self.props[prop_name] = prop
+        return prop
+
     def AddString(self, prop_name, val):
         """Add a new string property to a node
 
@@ -419,13 +511,46 @@ class Node:
         Args:
             prop_name: Name of property to add
             val: String value of property
-        """
-        if sys.version_info[0] >= 3:  # pragma: no cover
-            val = bytes(val, 'utf-8')
-        self.props[prop_name] = Prop(self, None, prop_name, val + b'\0')
 
-    def AddSubnode(self, name):
-        """Add a new subnode to the node
+        Returns:
+            Prop added
+        """
+        val = bytes(val, 'utf-8')
+        return self.AddData(prop_name, val + b'\0')
+
+    def AddStringList(self, prop_name, val):
+        """Add a new string-list property to a node
+
+        The device tree is marked dirty so that the value will be written to
+        the blob on the next sync.
+
+        Args:
+            prop_name: Name of property to add
+            val (list of str): List of strings to add
+
+        Returns:
+            Prop added
+        """
+        out = b'\0'.join(bytes(s, 'utf-8') for s in val) + b'\0' if val else b''
+        return self.AddData(prop_name, out)
+
+    def AddInt(self, prop_name, val):
+        """Add a new integer property to a node
+
+        The device tree is marked dirty so that the value will be written to
+        the blob on the next sync.
+
+        Args:
+            prop_name: Name of property to add
+            val: Integer value of property
+
+        Returns:
+            Prop added
+        """
+        return self.AddData(prop_name, struct.pack('>I', val))
+
+    def Subnode(self, name):
+        """Create new subnode for the node
 
         Args:
             name: name of node to add
@@ -434,9 +559,88 @@ class Node:
             New subnode that was created
         """
         path = self.path + '/' + name
-        subnode = Node(self._fdt, self, None, name, path)
+        return Node(self._fdt, self, None, name, path)
+
+    def AddSubnode(self, name):
+        """Add a new subnode to the node, after all other subnodes
+
+        Args:
+            name: name of node to add
+
+        Returns:
+            New subnode that was created
+        """
+        subnode = self.Subnode(name)
         self.subnodes.append(subnode)
         return subnode
+
+    def insert_subnode(self, name):
+        """Add a new subnode to the node, before all other subnodes
+
+        This deletes other subnodes and sets their offset to None, so that they
+        will be recreated after this one.
+
+        Args:
+            name: name of node to add
+
+        Returns:
+            New subnode that was created
+        """
+        # Deleting a node invalidates the offsets of all following nodes, so
+        # process in reverse order so that the offset of each node remains valid
+        # until deletion.
+        for subnode in reversed(self.subnodes):
+            subnode.purge(True)
+        subnode = self.Subnode(name)
+        self.subnodes.insert(0, subnode)
+        return subnode
+
+    def purge(self, delete_it=False):
+        """Purge this node, setting offset to None and deleting from FDT"""
+        if self._offset is not None:
+            if delete_it:
+                CheckErr(self._fdt._fdt_obj.del_node(self.Offset()),
+                     "Node '%s': delete" % self.path)
+            self._offset = None
+            self._fdt.Invalidate()
+
+        for prop in self.props.values():
+            prop.purge()
+
+        for subnode in self.subnodes:
+            subnode.purge(False)
+
+    def move_to_first(self):
+        """Move the current node to first in its parent's node list"""
+        parent = self.parent
+        if parent.subnodes and parent.subnodes[0] == self:
+            return
+        for subnode in reversed(parent.subnodes):
+            subnode.purge(True)
+
+        new_subnodes = [self]
+        for subnode in parent.subnodes:
+            #subnode.purge(False)
+            if subnode != self:
+                new_subnodes.append(subnode)
+        parent.subnodes = new_subnodes
+
+    def Delete(self):
+        """Delete a node
+
+        The node is deleted and the offset cache is invalidated.
+
+        Args:
+            node (Node): Node to delete
+
+        Raises:
+            ValueError if the node does not exist
+        """
+        CheckErr(self._fdt._fdt_obj.del_node(self.Offset()),
+                 "Node '%s': delete" % self.path)
+        parent = self.parent
+        self._fdt.Invalidate()
+        parent.subnodes.remove(self)
 
     def Sync(self, auto_resize=False):
         """Sync node changes back to the device tree
@@ -448,9 +652,13 @@ class Node:
             auto_resize: Resize the device tree automatically if it does not
                 have enough space for the update
 
+        Returns:
+            True if the node had to be added, False if it already existed
+
         Raises:
             FdtException if auto_resize is False and there is not enough space
         """
+        added = False
         if self._offset is None:
             # The subnode doesn't exist yet, so add it
             fdt_obj = self._fdt._fdt_obj
@@ -464,23 +672,118 @@ class Node:
             else:
                 offset = fdt_obj.add_subnode(self.parent._offset, self.name)
             self._offset = offset
+            added = True
 
-        # Sync subnodes in reverse so that we don't disturb node offsets for
-        # nodes that are earlier in the DT. This avoids an O(n^2) rescan of
-        # node offsets.
+        # Sync the existing subnodes first, so that we can rely on the offsets
+        # being correct. As soon as we add new subnodes, it pushes all the
+        # existing subnodes up.
         for node in reversed(self.subnodes):
-            node.Sync(auto_resize)
+            if node._offset is not None:
+                node.Sync(auto_resize)
 
-        # Sync properties now, whose offsets should not have been disturbed.
-        # We do this after subnodes, since this disturbs the offsets of these
-        # properties. Note that new properties will have an offset of None here,
-        # which Python 3 cannot sort against int. So use a large value instead
-        # to ensure that the new properties are added first.
+        # Sync subnodes in reverse so that we get the expected order. Each
+        # new node goes at the start of the subnode list. This avoids an O(n^2)
+        # rescan of node offsets.
+        num_added = 0
+        for node in reversed(self.subnodes):
+            if node.Sync(auto_resize):
+                num_added += 1
+        if num_added:
+            # Reorder our list of nodes to put the new ones first, since that's
+            # what libfdt does
+            old_count = len(self.subnodes) - num_added
+            subnodes = self.subnodes[old_count:] + self.subnodes[:old_count]
+            self.subnodes = subnodes
+
+        # Sync properties now, whose offsets should not have been disturbed,
+        # since properties come before subnodes. This is done after all the
+        # subnode processing above, since updating properties can disturb the
+        # offsets of those subnodes.
+        # Properties are synced in reverse order, with new properties added
+        # before existing properties are synced. This ensures that the offsets
+        # of earlier properties are not disturbed.
+        # Note that new properties will have an offset of None here, which
+        # Python cannot sort against int. So use a large value instead so that
+        # new properties are added first.
         prop_list = sorted(self.props.values(),
                            key=lambda prop: prop._offset or 1 << 31,
                            reverse=True)
         for prop in prop_list:
             prop.Sync(auto_resize)
+        return added
+
+    def merge_props(self, src, copy_phandles):
+        """Copy missing properties (except 'phandle') from another node
+
+        Args:
+            src (Node): Node containing properties to copy
+            copy_phandles (bool): True to copy phandle properties in nodes
+
+        Adds properties which are present in src but not in this node. Any
+        'phandle' property is not copied since this might result in two nodes
+        with the same phandle, thus making phandle references ambiguous.
+        """
+        tout.debug(f'copy to {self.path}: {src.path}')
+        for name, src_prop in src.props.items():
+            done = False
+            if name not in self.props:
+                if copy_phandles or name != 'phandle':
+                    self.props[name] = Prop(self, None, name, src_prop.bytes)
+                    done = True
+            tout.debug(f"  {name}{'' if done else '  - ignored'}")
+
+    def copy_node(self, src, copy_phandles=False):
+        """Copy a node and all its subnodes into this node
+
+        Args:
+            src (Node): Node to copy
+            copy_phandles (bool): True to copy phandle properties in nodes
+
+        Returns:
+            Node: Resulting destination node
+
+        This works recursively, with copy_phandles being set to True for the
+        recursive calls
+
+        The new node is put before all other nodes. If the node already
+        exists, just its subnodes and properties are copied, placing them before
+        any existing subnodes. Properties which exist in the destination node
+        already are not copied.
+        """
+        dst = self.FindNode(src.name)
+        if dst:
+            dst.move_to_first()
+        else:
+            dst = self.insert_subnode(src.name)
+        dst.merge_props(src, copy_phandles)
+
+        # Process in reverse order so that they appear correctly in the result,
+        # since copy_node() puts the node first in the list
+        for node in reversed(src.subnodes):
+            dst.copy_node(node, True)
+        return dst
+
+    def copy_subnodes_from_phandles(self, phandle_list):
+        """Copy subnodes of a list of nodes into another node
+
+        Args:
+            phandle_list (list of int): List of phandles of nodes to copy
+
+        For each node in the phandle list, its subnodes and their properties are
+        copied recursively. Note that it does not copy the node itself, nor its
+        properties.
+        """
+        # Process in reverse order, since new nodes are inserted at the start of
+        # the destination's node list. We want them to appear in order of the
+        # phandle list
+        for phandle in phandle_list.__reversed__():
+            parent = self.GetFdt().LookupPhandle(phandle)
+            tout.debug(f'adding template {parent.path} to node {self.path}')
+            for node in parent.subnodes.__reversed__():
+                dst = self.copy_node(node)
+
+            tout.debug(f'merge props from {parent.path} to {dst.path}')
+            self.merge_props(parent, False)
 
 
 class Fdt:
@@ -541,6 +844,7 @@ class Fdt:
 
         TODO(sjg@chromium.org): Implement the 'root' parameter
         """
+        self.phandle_to_node = {}
         self._cached_offsets = True
         self._root = self.Node(self, None, 0, '/', '/')
         self._root.Scan()
@@ -591,8 +895,9 @@ class Fdt:
         Raises:
             FdtException if auto_resize is False and there is not enough space
         """
+        self.CheckCache()
         self._root.Sync(auto_resize)
-        self.Invalidate()
+        self.Refresh()
 
     def Pack(self):
         """Pack the device tree down to its minimum size
@@ -601,7 +906,7 @@ class Fdt:
         build up in the device tree binary.
         """
         CheckErr(self._fdt_obj.pack(), 'pack')
-        self.Invalidate()
+        self.Refresh()
 
     def GetContents(self):
         """Get the contents of the FDT
@@ -653,11 +958,11 @@ class Fdt:
         if self._cached_offsets:
             return
         self.Refresh()
-        self._cached_offsets = True
 
     def Refresh(self):
         """Refresh the offset cache"""
         self._root.Refresh(0)
+        self._cached_offsets = True
 
     def GetStructOffset(self, offset):
         """Get the file offset of a given struct offset

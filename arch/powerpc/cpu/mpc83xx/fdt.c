@@ -8,6 +8,7 @@
 
 #include <common.h>
 #include <clock_legacy.h>
+#include <asm/global_data.h>
 #include <linux/libfdt.h>
 #include <fdt_support.h>
 #include <asm/processor.h>
@@ -31,7 +32,7 @@ void fdt_fixup_muram (void *blob)
 }
 #endif
 
-void ft_cpu_setup(void *blob, bd_t *bd)
+void ft_cpu_setup(void *blob, struct bd_info *bd)
 {
 	immap_t *immr = (immap_t *)CONFIG_SYS_IMMR;
 	int spridr = immr->sysconf.spridr;
@@ -50,9 +51,6 @@ void ft_cpu_setup(void *blob, bd_t *bd)
 		 REVID_MAJOR(spridr) >= 2)
 		fdt_fixup_crypto_node(blob, 0x0204);
 
-#if defined(CONFIG_HAS_ETH0) || defined(CONFIG_HAS_ETH1) ||\
-    defined(CONFIG_HAS_ETH2) || defined(CONFIG_HAS_ETH3) ||\
-    defined(CONFIG_HAS_ETH4) || defined(CONFIG_HAS_ETH5)
 #ifdef CONFIG_ARCH_MPC8313
 	/*
 	* mpc8313e erratum IPIC1 swapped TSEC interrupt ID numbers on rev. 1
@@ -65,7 +63,6 @@ void ft_cpu_setup(void *blob, bd_t *bd)
 
 		nodeoffset = fdt_path_offset(blob, "/aliases");
 		if (nodeoffset >= 0) {
-#if defined(CONFIG_HAS_ETH0)
 			prop = fdt_getprop(blob, nodeoffset, "ethernet0", NULL);
 			if (prop) {
 				u32 tmp[] = { 32, 0x8, 33, 0x8, 34, 0x8 };
@@ -77,8 +74,6 @@ void ft_cpu_setup(void *blob, bd_t *bd)
 					fdt_setprop(blob, path, "interrupts",
 						    &tmp, sizeof(tmp));
 			}
-#endif
-#if defined(CONFIG_HAS_ETH1)
 			prop = fdt_getprop(blob, nodeoffset, "ethernet1", NULL);
 			if (prop) {
 				u32 tmp[] = { 35, 0x8, 36, 0x8, 37, 0x8 };
@@ -90,10 +85,8 @@ void ft_cpu_setup(void *blob, bd_t *bd)
 					fdt_setprop(blob, path, "interrupts",
 						    &tmp, sizeof(tmp));
 			}
-#endif
 		}
 	}
-#endif
 #endif
 
 	do_fixup_by_prop_u32(blob, "device_type", "cpu", 4,
@@ -121,7 +114,7 @@ void ft_cpu_setup(void *blob, bd_t *bd)
                 "clock-frequency", get_serial_clock(), 1);
 #endif
 
-	fdt_fixup_memory(blob, (u64)bd->bi_memstart, (u64)bd->bi_memsize);
+	fdt_fixup_memory(blob, (u64)gd->ram_base, (u64)gd->ram_size);
 
 #if defined(CONFIG_BOOTCOUNT_LIMIT) && \
 	(defined(CONFIG_QE) && !defined(CONFIG_ARCH_MPC831X))

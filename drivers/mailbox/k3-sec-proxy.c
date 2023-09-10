@@ -9,6 +9,7 @@
 #include <common.h>
 #include <log.h>
 #include <malloc.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
 #include <dm/device_compat.h>
 #include <linux/types.h>
@@ -93,11 +94,6 @@ static inline u32 sp_readl(void __iomem *addr, unsigned int offset)
 	return readl(addr + offset);
 }
 
-static inline void sp_writel(void __iomem *addr, unsigned int offset, u32 data)
-{
-	writel(data, addr + offset);
-}
-
 /**
  * k3_sec_proxy_of_xlate() - Translation of phandle to channel
  * @chan:	Mailbox channel
@@ -115,7 +111,7 @@ static int k3_sec_proxy_of_xlate(struct mbox_chan *chan,
 	debug("%s(chan=%p)\n", __func__, chan);
 
 	if (args->args_count != 1) {
-		debug("Invaild args_count: %d\n", args->args_count);
+		debug("Invalid args_count: %d\n", args->args_count);
 		return -EINVAL;
 	}
 	ind = args->args[0];
@@ -212,14 +208,16 @@ static int k3_sec_proxy_send(struct mbox_chan *chan, const void *data)
 
 	ret = k3_sec_proxy_verify_thread(spt, THREAD_IS_TX);
 	if (ret) {
-		dev_err(dev, "%s: Thread%d verification failed. ret = %d\n",
+		dev_err(chan->dev,
+			"%s: Thread%d verification failed. ret = %d\n",
 			__func__, spt->id, ret);
 		return ret;
 	}
 
 	/* Check the message size. */
 	if (msg->len > spm->desc->max_msg_size) {
-		printf("%s: Thread %ld message length %zu > max msg size %d\n",
+		dev_err(chan->dev,
+			"%s: Thread %ld message length %zu > max msg size %d\n",
 		       __func__, chan->id, msg->len, spm->desc->max_msg_size);
 		return -EINVAL;
 	}
@@ -238,15 +236,20 @@ static int k3_sec_proxy_send(struct mbox_chan *chan, const void *data)
 		/* Ensure all unused data is 0 */
 		data_trail &= 0xFFFFFFFF >> (8 * (sizeof(u32) - trail_bytes));
 		writel(data_trail, data_reg);
-		data_reg++;
+		data_reg += sizeof(u32);
 	}
 
 	/*
 	 * 'data_reg' indicates next register to write. If we did not already
 	 * write on tx complete reg(last reg), we must do so for transmit
+	 * In addition, we also need to make sure all intermediate data
+	 * registers(if any required), are reset to 0 for TISCI backward
+	 * compatibility to be maintained.
 	 */
-	if (data_reg <= (spt->data + spm->desc->data_end_offset))
-		sp_writel(spt->data, spm->desc->data_end_offset, 0);
+	while (data_reg <= (spt->data + spm->desc->data_end_offset)) {
+		writel(0x0, data_reg);
+		data_reg += sizeof(u32);
+	}
 
 	debug("%s: Message successfully sent on thread %ld\n",
 	      __func__, chan->id);
@@ -406,15 +409,7 @@ static int k3_sec_proxy_remove(struct udevice *dev)
 	return 0;
 }
 
-/*
- * Thread ID #4: ROM request
- * Thread ID #5: ROM response, SYSFW notify
- * Thread ID #6: SYSFW request response
- * Thread ID #7: SYSFW request high priority
- * Thread ID #8: SYSFW request low priority
- * Thread ID #9: SYSFW notify response
- */
-static const u32 am6x_valid_threads[] = { 4, 5, 6, 7, 8, 9, 11, 13 };
+static const u32 am6x_valid_threads[] = { 0, 1, 4, 5, 6, 7, 8, 9, 11, 12, 13, 20, 21, 22, 23 };
 
 static const struct k3_sec_proxy_desc am654_desc = {
 	.thread_count = 90,
@@ -436,6 +431,6 @@ U_BOOT_DRIVER(k3_sec_proxy) = {
 	.of_match = k3_sec_proxy_ids,
 	.probe = k3_sec_proxy_probe,
 	.remove = k3_sec_proxy_remove,
-	.priv_auto_alloc_size = sizeof(struct k3_sec_proxy_mbox),
+	.priv_auto	= sizeof(struct k3_sec_proxy_mbox),
 	.ops = &k3_sec_proxy_mbox_ops,
 };

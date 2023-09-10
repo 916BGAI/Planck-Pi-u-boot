@@ -3,6 +3,9 @@
  * Copyright (C) 2018-2019 Intel Corporation <www.intel.com>
  *
  */
+
+#define LOG_CATEGORY UCLASS_FS_FIRMWARE_LOADER
+
 #include <common.h>
 #include <dm.h>
 #include <env.h>
@@ -11,10 +14,17 @@
 #include <fs.h>
 #include <fs_loader.h>
 #include <log.h>
+#include <asm/global_data.h>
+#include <dm/device-internal.h>
+#include <dm/root.h>
 #include <linux/string.h>
 #include <mapmem.h>
 #include <malloc.h>
 #include <spl.h>
+
+#ifdef CONFIG_CMD_UBIFS
+#include <ubi_uboot.h>
+#endif
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -61,7 +71,7 @@ static int mount_ubifs(char *mtdpart, char *ubivol)
 }
 #endif
 
-static int select_fs_dev(struct device_platdata *plat)
+static int select_fs_dev(struct device_plat *plat)
 {
 	int ret;
 
@@ -161,7 +171,7 @@ static int fw_get_filesystem_firmware(struct udevice *dev)
 		else
 			ret = -ENODEV;
 	} else {
-		ret = select_fs_dev(dev->platdata);
+		ret = select_fs_dev(dev_get_plat(dev));
 	}
 
 	if (ret)
@@ -219,16 +229,16 @@ int request_firmware_into_buf(struct udevice *dev,
 	return ret;
 }
 
-static int fs_loader_ofdata_to_platdata(struct udevice *dev)
+static int fs_loader_of_to_plat(struct udevice *dev)
 {
 	u32 phandlepart[2];
 
 	ofnode fs_loader_node = dev_ofnode(dev);
 
 	if (ofnode_valid(fs_loader_node)) {
-		struct device_platdata *plat;
+		struct device_plat *plat;
 
-		plat = dev->platdata;
+		plat = dev_get_plat(dev);
 		if (!ofnode_read_u32_array(fs_loader_node,
 					  "phandlepart",
 					  phandlepart, 2)) {
@@ -250,7 +260,7 @@ static int fs_loader_probe(struct udevice *dev)
 {
 #if CONFIG_IS_ENABLED(DM) && CONFIG_IS_ENABLED(BLK)
 	int ret;
-	struct device_platdata *plat = dev->platdata;
+	struct device_plat *plat = dev_get_plat(dev);
 
 	if (plat->phandlepart.phandle) {
 		ofnode node = ofnode_get_by_phandle(plat->phandlepart.phandle);
@@ -284,10 +294,35 @@ U_BOOT_DRIVER(fs_loader) = {
 	.id			= UCLASS_FS_FIRMWARE_LOADER,
 	.of_match		= fs_loader_ids,
 	.probe			= fs_loader_probe,
-	.ofdata_to_platdata	= fs_loader_ofdata_to_platdata,
-	.platdata_auto_alloc_size	= sizeof(struct device_platdata),
-	.priv_auto_alloc_size	= sizeof(struct firmware),
+	.of_to_plat	= fs_loader_of_to_plat,
+	.plat_auto	= sizeof(struct device_plat),
+	.priv_auto	= sizeof(struct firmware),
 };
+
+static struct device_plat default_plat = { 0 };
+
+int get_fs_loader(struct udevice **dev)
+{
+	int ret;
+	ofnode node = ofnode_get_chosen_node("firmware-loader");
+
+	if (ofnode_valid(node))
+		return uclass_get_device_by_ofnode(UCLASS_FS_FIRMWARE_LOADER,
+						   node, dev);
+
+	/* Try the first device if none was chosen */
+	ret = uclass_first_device_err(UCLASS_FS_FIRMWARE_LOADER, dev);
+	if (ret != -ENODEV)
+		return ret;
+
+	/* Just create a new device */
+	ret = device_bind(dm_root(), DM_DRIVER_GET(fs_loader), "default-loader",
+			  &default_plat, ofnode_null(), dev);
+	if (ret)
+		return ret;
+
+	return device_probe(*dev);
+}
 
 UCLASS_DRIVER(fs_loader) = {
 	.id		= UCLASS_FS_FIRMWARE_LOADER,

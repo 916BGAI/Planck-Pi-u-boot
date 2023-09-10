@@ -33,6 +33,8 @@ enum dfu_layout {
 	DFU_FS_EXT3,
 	DFU_FS_EXT4,
 	DFU_RAM_ADDR,
+	DFU_SKIP,
+	DFU_SCRIPT,
 };
 
 enum dfu_op {
@@ -79,7 +81,7 @@ struct nand_internal_data {
 };
 
 struct ram_internal_data {
-	void		*start;
+	unsigned long	start;
 	unsigned int	size;
 };
 
@@ -98,12 +100,6 @@ struct virt_internal_data {
 };
 
 #define DFU_NAME_SIZE			32
-#ifndef CONFIG_SYS_DFU_DATA_BUF_SIZE
-#define CONFIG_SYS_DFU_DATA_BUF_SIZE		(1024*1024*8)	/* 8 MiB */
-#endif
-#ifndef CONFIG_SYS_DFU_MAX_FILE_SIZE
-#define CONFIG_SYS_DFU_MAX_FILE_SIZE CONFIG_SYS_DFU_DATA_BUF_SIZE
-#endif
 #ifndef DFU_DEFAULT_POLL_TIMEOUT
 #define DFU_DEFAULT_POLL_TIMEOUT 0
 #endif
@@ -157,6 +153,9 @@ struct dfu_entity {
 
 	unsigned int inited:1;
 };
+
+struct list_head;
+extern struct list_head dfu_list;
 
 #ifdef CONFIG_SET_DFU_ALT_INFO
 /**
@@ -378,6 +377,17 @@ void dfu_initiated_callback(struct dfu_entity *dfu);
  */
 void dfu_flush_callback(struct dfu_entity *dfu);
 
+/**
+ * dfu_error_callback() - weak callback called at the DFU write error
+ *
+ * It is a callback function called by DFU stack after DFU write error.
+ * This function allows to manage some board specific behavior on DFU targets
+ *
+ * @dfu:	pointer to the dfu_entity which cause the error
+ * @msg:	the message of the error
+ */
+void dfu_error_callback(struct dfu_entity *dfu, const char *msg);
+
 int dfu_transaction_initiate(struct dfu_entity *dfu, bool read);
 void dfu_transaction_cleanup(struct dfu_entity *dfu);
 
@@ -422,11 +432,15 @@ static inline void dfu_set_defer_flush(struct dfu_entity *dfu)
 int dfu_write_from_mem_addr(struct dfu_entity *dfu, void *buf, int size);
 
 /* Device specific */
+/* Each entity has 5 arguments in maximum. */
+#define DFU_MAX_ENTITY_ARGS	5
+
 #if CONFIG_IS_ENABLED(DFU_MMC)
-extern int dfu_fill_entity_mmc(struct dfu_entity *dfu, char *devstr, char *s);
+extern int dfu_fill_entity_mmc(struct dfu_entity *dfu, char *devstr,
+			       char **argv, int argc);
 #else
 static inline int dfu_fill_entity_mmc(struct dfu_entity *dfu, char *devstr,
-				      char *s)
+				      char **argv, int argc)
 {
 	puts("MMC support not available!\n");
 	return -1;
@@ -434,10 +448,11 @@ static inline int dfu_fill_entity_mmc(struct dfu_entity *dfu, char *devstr,
 #endif
 
 #if CONFIG_IS_ENABLED(DFU_NAND)
-extern int dfu_fill_entity_nand(struct dfu_entity *dfu, char *devstr, char *s);
+extern int dfu_fill_entity_nand(struct dfu_entity *dfu, char *devstr,
+				char **argv, int argc);
 #else
 static inline int dfu_fill_entity_nand(struct dfu_entity *dfu, char *devstr,
-				       char *s)
+				       char **argv, int argc)
 {
 	puts("NAND support not available!\n");
 	return -1;
@@ -445,10 +460,11 @@ static inline int dfu_fill_entity_nand(struct dfu_entity *dfu, char *devstr,
 #endif
 
 #if CONFIG_IS_ENABLED(DFU_RAM)
-extern int dfu_fill_entity_ram(struct dfu_entity *dfu, char *devstr, char *s);
+extern int dfu_fill_entity_ram(struct dfu_entity *dfu, char *devstr,
+			       char **argv, int argc);
 #else
 static inline int dfu_fill_entity_ram(struct dfu_entity *dfu, char *devstr,
-				      char *s)
+				      char **argv, int argc)
 {
 	puts("RAM support not available!\n");
 	return -1;
@@ -456,10 +472,11 @@ static inline int dfu_fill_entity_ram(struct dfu_entity *dfu, char *devstr,
 #endif
 
 #if CONFIG_IS_ENABLED(DFU_SF)
-extern int dfu_fill_entity_sf(struct dfu_entity *dfu, char *devstr, char *s);
+extern int dfu_fill_entity_sf(struct dfu_entity *dfu, char *devstr,
+			      char **argv, int argc);
 #else
 static inline int dfu_fill_entity_sf(struct dfu_entity *dfu, char *devstr,
-				     char *s)
+				     char **argv, int argc)
 {
 	puts("SF support not available!\n");
 	return -1;
@@ -467,18 +484,20 @@ static inline int dfu_fill_entity_sf(struct dfu_entity *dfu, char *devstr,
 #endif
 
 #if CONFIG_IS_ENABLED(DFU_MTD)
-int dfu_fill_entity_mtd(struct dfu_entity *dfu, char *devstr, char *s);
+extern int dfu_fill_entity_mtd(struct dfu_entity *dfu, char *devstr,
+			       char **argv, int argc);
 #else
 static inline int dfu_fill_entity_mtd(struct dfu_entity *dfu, char *devstr,
-				      char *s)
+				      char **argv, int argc)
 {
 	puts("MTD support not available!\n");
 	return -1;
 }
 #endif
 
-#ifdef CONFIG_DFU_VIRT
-int dfu_fill_entity_virt(struct dfu_entity *dfu, char *devstr, char *s);
+#if CONFIG_IS_ENABLED(DFU_VIRT)
+int dfu_fill_entity_virt(struct dfu_entity *dfu, char *devstr,
+			 char **argv, int argc);
 int dfu_write_medium_virt(struct dfu_entity *dfu, u64 offset,
 			  void *buf, long *len);
 int dfu_get_medium_size_virt(struct dfu_entity *dfu, u64 *size);
@@ -486,35 +505,61 @@ int dfu_read_medium_virt(struct dfu_entity *dfu, u64 offset,
 			 void *buf, long *len);
 #else
 static inline int dfu_fill_entity_virt(struct dfu_entity *dfu, char *devstr,
-				       char *s)
+				       char **argv, int argc)
 {
 	puts("VIRT support not available!\n");
 	return -1;
 }
 #endif
 
+extern bool dfu_reinit_needed;
+
+#if CONFIG_IS_ENABLED(DFU_WRITE_ALT)
 /**
- * dfu_tftp_write() - write TFTP data to DFU medium
+ * dfu_write_by_name() - write data to DFU medium
+ * @dfu_entity_name:	Name of DFU entity to write
+ * @addr:		Address of data buffer to write
+ * @len:		Number of bytes
+ * @interface:		Destination DFU medium (e.g. "mmc")
+ * @devstring:		Instance number of destination DFU medium (e.g. "1")
  *
- * This function is storing data received via TFTP on DFU supported medium.
+ * This function is storing data received on DFU supported medium which
+ * is specified by @dfu_entity_name.
  *
- * @dfu_entity_name:	name of DFU entity to write
- * @addr:		address of data buffer to write
- * @len:		number of bytes
- * @interface:		destination DFU medium (e.g. "mmc")
- * @devstring:		instance number of destination DFU medium (e.g. "1")
- *
- * Return:		0 on success, otherwise error code
+ * Return:		0 - on success, error code - otherwise
  */
-#if CONFIG_IS_ENABLED(DFU_TFTP)
-int dfu_tftp_write(char *dfu_entity_name, unsigned int addr, unsigned int len,
-		   char *interface, char *devstring);
+int dfu_write_by_name(char *dfu_entity_name, void *addr,
+		      unsigned int len, char *interface, char *devstring);
+
+/**
+ * dfu_write_by_alt() - write data to DFU medium
+ * @dfu_alt_num:	DFU alt setting number
+ * @addr:		Address of data buffer to write
+ * @len:		Number of bytes
+ * @interface:		Destination DFU medium (e.g. "mmc")
+ * @devstring:		Instance number of destination DFU medium (e.g. "1")
+ *
+ * This function is storing data received on DFU supported medium which
+ * is specified by @dfu_alt_name.
+ *
+ * Return:		0 - on success, error code - otherwise
+ */
+int dfu_write_by_alt(int dfu_alt_num, void *addr, unsigned int len,
+		     char *interface, char *devstring);
 #else
-static inline int dfu_tftp_write(char *dfu_entity_name, unsigned int addr,
-				 unsigned int len, char *interface,
-				 char *devstring)
+static inline int dfu_write_by_name(char *dfu_entity_name, void *addr,
+				    unsigned int len, char *interface,
+				    char *devstring)
 {
-	puts("TFTP write support for DFU not available!\n");
+	puts("write support for DFU not available!\n");
+	return -ENOSYS;
+}
+
+static inline int dfu_write_by_alt(int dfu_alt_num, void *addr,
+				   unsigned int len, char *interface,
+				   char *devstring)
+{
+	puts("write support for DFU not available!\n");
 	return -ENOSYS;
 }
 #endif

@@ -10,6 +10,7 @@
 #include <dm.h>
 #include <dm/device_compat.h>
 #include <malloc.h>
+#include <spi.h>
 #include <spi-mem.h>
 #include <wait_bit.h>
 #include <asm/io.h>
@@ -104,7 +105,7 @@ struct sifive_spi {
 };
 
 static void sifive_spi_prep_device(struct sifive_spi *spi,
-				   struct dm_spi_slave_platdata *slave_plat)
+				   struct dm_spi_slave_plat *slave_plat)
 {
 	/* Update the chip select polarity */
 	if (slave_plat->mode & SPI_CS_HIGH)
@@ -118,7 +119,7 @@ static void sifive_spi_prep_device(struct sifive_spi *spi,
 }
 
 static int sifive_spi_set_cs(struct sifive_spi *spi,
-			     struct dm_spi_slave_platdata *slave_plat)
+			     struct dm_spi_slave_plat *slave_plat)
 {
 	u32 cs_mode = SIFIVE_SPI_CSMODE_MODE_HOLD;
 
@@ -136,7 +137,7 @@ static void sifive_spi_clear_cs(struct sifive_spi *spi)
 }
 
 static void sifive_spi_prep_transfer(struct sifive_spi *spi,
-				     struct dm_spi_slave_platdata *slave_plat,
+				     struct dm_spi_slave_plat *slave_plat,
 				     u8 *rx_ptr)
 {
 	u32 cr;
@@ -211,7 +212,7 @@ static int sifive_spi_xfer(struct udevice *dev, unsigned int bitlen,
 {
 	struct udevice *bus = dev->parent;
 	struct sifive_spi *spi = dev_get_priv(bus);
-	struct dm_spi_slave_platdata *slave_plat = dev_get_parent_platdata(dev);
+	struct dm_spi_slave_plat *slave_plat = dev_get_parent_plat(dev);
 	const u8 *tx_ptr = dout;
 	u8 *rx_ptr = din;
 	u32 remaining_len;
@@ -349,7 +350,7 @@ static int sifive_spi_set_speed(struct udevice *bus, uint speed)
 	if (speed > spi->freq)
 		speed = spi->freq;
 
-	/* Cofigure max speed */
+	/* Configure max speed */
 	scale = (DIV_ROUND_UP(spi->freq >> 1, speed) - 1)
 					& SIFIVE_SPI_SCKDIV_DIV_MASK;
 	writel(scale, spi->regs + SIFIVE_SPI_REG_SCKDIV);
@@ -474,6 +475,6 @@ U_BOOT_DRIVER(sifive_spi) = {
 	.id	= UCLASS_SPI,
 	.of_match = sifive_spi_ids,
 	.ops	= &sifive_spi_ops,
-	.priv_auto_alloc_size = sizeof(struct sifive_spi),
+	.priv_auto	= sizeof(struct sifive_spi),
 	.probe	= sifive_spi_probe,
 };

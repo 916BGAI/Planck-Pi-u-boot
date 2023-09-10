@@ -4,12 +4,13 @@
  * Author(s): Vikas Manocha, <vikas.manocha@st.com> for STMicroelectronics.
  */
 
+#define LOG_CATEGORY UCLASS_GPIO
+
 #include <common.h>
 #include <clk.h>
 #include <dm.h>
 #include <fdtdec.h>
 #include <log.h>
-#include <asm/arch/gpio.h>
 #include <asm/arch/stm32.h>
 #include <asm/gpio.h>
 #include <asm/io.h>
@@ -18,47 +19,86 @@
 #include <linux/errno.h>
 #include <linux/io.h>
 
-#define MODE_BITS(gpio_pin)		(gpio_pin * 2)
-#define MODE_BITS_MASK			3
-#define BSRR_BIT(gpio_pin, value)	BIT(gpio_pin + (value ? 0 : 16))
+#include "stm32_gpio_priv.h"
 
-/*
- * convert gpio offset to gpio index taking into account gpio holes
- * into gpio bank
- */
-int stm32_offset_to_index(struct udevice *dev, unsigned int offset)
+#define STM32_GPIOS_PER_BANK		16
+
+#define MODE_BITS(gpio_pin)		((gpio_pin) * 2)
+#define MODE_BITS_MASK			3
+#define BSRR_BIT(gpio_pin, value)	BIT((gpio_pin) + (value ? 0 : 16))
+
+#define PUPD_BITS(gpio_pin)		((gpio_pin) * 2)
+#define PUPD_MASK			3
+
+#define OTYPE_BITS(gpio_pin)		(gpio_pin)
+#define OTYPE_MSK			1
+
+static void stm32_gpio_set_moder(struct stm32_gpio_regs *regs,
+				 int idx,
+				 int mode)
+{
+	int bits_index;
+	int mask;
+
+	bits_index = MODE_BITS(idx);
+	mask = MODE_BITS_MASK << bits_index;
+
+	clrsetbits_le32(&regs->moder, mask, mode << bits_index);
+}
+
+static int stm32_gpio_get_moder(struct stm32_gpio_regs *regs, int idx)
+{
+	return (readl(&regs->moder) >> MODE_BITS(idx)) & MODE_BITS_MASK;
+}
+
+static void stm32_gpio_set_otype(struct stm32_gpio_regs *regs,
+				 int idx,
+				 enum stm32_gpio_otype otype)
+{
+	int bits;
+
+	bits = OTYPE_BITS(idx);
+	clrsetbits_le32(&regs->otyper, OTYPE_MSK << bits, otype << bits);
+}
+
+static enum stm32_gpio_otype stm32_gpio_get_otype(struct stm32_gpio_regs *regs,
+						  int idx)
+{
+	return (readl(&regs->otyper) >> OTYPE_BITS(idx)) & OTYPE_MSK;
+}
+
+static void stm32_gpio_set_pupd(struct stm32_gpio_regs *regs,
+				int idx,
+				enum stm32_gpio_pupd pupd)
+{
+	int bits;
+
+	bits = PUPD_BITS(idx);
+	clrsetbits_le32(&regs->pupdr, PUPD_MASK << bits, pupd << bits);
+}
+
+static enum stm32_gpio_pupd stm32_gpio_get_pupd(struct stm32_gpio_regs *regs,
+						int idx)
+{
+	return (readl(&regs->pupdr) >> PUPD_BITS(idx)) & PUPD_MASK;
+}
+
+static bool stm32_gpio_is_mapped(struct udevice *dev, int offset)
 {
 	struct stm32_gpio_priv *priv = dev_get_priv(dev);
-	unsigned int idx = 0;
-	int i;
 
-	for (i = 0; i < STM32_GPIOS_PER_BANK; i++) {
-		if (priv->gpio_range & BIT(i)) {
-			if (idx == offset)
-				return idx;
-			idx++;
-		}
-	}
-	/* shouldn't happen */
-	return -EINVAL;
+	return !!(priv->gpio_range & BIT(offset));
 }
 
 static int stm32_gpio_direction_input(struct udevice *dev, unsigned offset)
 {
 	struct stm32_gpio_priv *priv = dev_get_priv(dev);
 	struct stm32_gpio_regs *regs = priv->regs;
-	int bits_index;
-	int mask;
-	int idx;
 
-	idx = stm32_offset_to_index(dev, offset);
-	if (idx < 0)
-		return idx;
+	if (!stm32_gpio_is_mapped(dev, offset))
+		return -ENXIO;
 
-	bits_index = MODE_BITS(idx);
-	mask = MODE_BITS_MASK << bits_index;
-
-	clrsetbits_le32(&regs->moder, mask, STM32_GPIO_MODE_IN << bits_index);
+	stm32_gpio_set_moder(regs, offset, STM32_GPIO_MODE_IN);
 
 	return 0;
 }
@@ -68,20 +108,13 @@ static int stm32_gpio_direction_output(struct udevice *dev, unsigned offset,
 {
 	struct stm32_gpio_priv *priv = dev_get_priv(dev);
 	struct stm32_gpio_regs *regs = priv->regs;
-	int bits_index;
-	int mask;
-	int idx;
 
-	idx = stm32_offset_to_index(dev, offset);
-	if (idx < 0)
-		return idx;
+	if (!stm32_gpio_is_mapped(dev, offset))
+		return -ENXIO;
 
-	bits_index = MODE_BITS(idx);
-	mask = MODE_BITS_MASK << bits_index;
+	stm32_gpio_set_moder(regs, offset, STM32_GPIO_MODE_OUT);
 
-	clrsetbits_le32(&regs->moder, mask, STM32_GPIO_MODE_OUT << bits_index);
-
-	writel(BSRR_BIT(idx, value), &regs->bsrr);
+	writel(BSRR_BIT(offset, value), &regs->bsrr);
 
 	return 0;
 }
@@ -90,26 +123,22 @@ static int stm32_gpio_get_value(struct udevice *dev, unsigned offset)
 {
 	struct stm32_gpio_priv *priv = dev_get_priv(dev);
 	struct stm32_gpio_regs *regs = priv->regs;
-	int idx;
 
-	idx = stm32_offset_to_index(dev, offset);
-	if (idx < 0)
-		return idx;
+	if (!stm32_gpio_is_mapped(dev, offset))
+		return -ENXIO;
 
-	return readl(&regs->idr) & BIT(idx) ? 1 : 0;
+	return readl(&regs->idr) & BIT(offset) ? 1 : 0;
 }
 
 static int stm32_gpio_set_value(struct udevice *dev, unsigned offset, int value)
 {
 	struct stm32_gpio_priv *priv = dev_get_priv(dev);
 	struct stm32_gpio_regs *regs = priv->regs;
-	int idx;
 
-	idx = stm32_offset_to_index(dev, offset);
-	if (idx < 0)
-		return idx;
+	if (!stm32_gpio_is_mapped(dev, offset))
+		return -ENXIO;
 
-	writel(BSRR_BIT(idx, value), &regs->bsrr);
+	writel(BSRR_BIT(offset, value), &regs->bsrr);
 
 	return 0;
 }
@@ -120,14 +149,12 @@ static int stm32_gpio_get_function(struct udevice *dev, unsigned int offset)
 	struct stm32_gpio_regs *regs = priv->regs;
 	int bits_index;
 	int mask;
-	int idx;
 	u32 mode;
 
-	idx = stm32_offset_to_index(dev, offset);
-	if (idx < 0)
-		return idx;
+	if (!stm32_gpio_is_mapped(dev, offset))
+		return GPIOF_UNKNOWN;
 
-	bits_index = MODE_BITS(idx);
+	bits_index = MODE_BITS(offset);
 	mask = MODE_BITS_MASK << bits_index;
 
 	mode = (readl(&regs->moder) & mask) >> bits_index;
@@ -141,31 +168,101 @@ static int stm32_gpio_get_function(struct udevice *dev, unsigned int offset)
 	return GPIOF_FUNC;
 }
 
+static int stm32_gpio_set_flags(struct udevice *dev, unsigned int offset,
+				ulong flags)
+{
+	struct stm32_gpio_priv *priv = dev_get_priv(dev);
+	struct stm32_gpio_regs *regs = priv->regs;
+
+	if (!stm32_gpio_is_mapped(dev, offset))
+		return -ENXIO;
+
+	if (flags & GPIOD_IS_OUT) {
+		bool value = flags & GPIOD_IS_OUT_ACTIVE;
+
+		if (flags & GPIOD_OPEN_DRAIN)
+			stm32_gpio_set_otype(regs, offset, STM32_GPIO_OTYPE_OD);
+		else
+			stm32_gpio_set_otype(regs, offset, STM32_GPIO_OTYPE_PP);
+
+		stm32_gpio_set_moder(regs, offset, STM32_GPIO_MODE_OUT);
+		writel(BSRR_BIT(offset, value), &regs->bsrr);
+
+	} else if (flags & GPIOD_IS_IN) {
+		stm32_gpio_set_moder(regs, offset, STM32_GPIO_MODE_IN);
+	}
+	if (flags & GPIOD_PULL_UP)
+		stm32_gpio_set_pupd(regs, offset, STM32_GPIO_PUPD_UP);
+	else if (flags & GPIOD_PULL_DOWN)
+		stm32_gpio_set_pupd(regs, offset, STM32_GPIO_PUPD_DOWN);
+
+	return 0;
+}
+
+static int stm32_gpio_get_flags(struct udevice *dev, unsigned int offset,
+				ulong *flagsp)
+{
+	struct stm32_gpio_priv *priv = dev_get_priv(dev);
+	struct stm32_gpio_regs *regs = priv->regs;
+	ulong dir_flags = 0;
+
+	if (!stm32_gpio_is_mapped(dev, offset))
+		return -ENXIO;
+
+	switch (stm32_gpio_get_moder(regs, offset)) {
+	case STM32_GPIO_MODE_OUT:
+		dir_flags |= GPIOD_IS_OUT;
+		if (stm32_gpio_get_otype(regs, offset) == STM32_GPIO_OTYPE_OD)
+			dir_flags |= GPIOD_OPEN_DRAIN;
+		if (readl(&regs->idr) & BIT(offset))
+			dir_flags |= GPIOD_IS_OUT_ACTIVE;
+		break;
+	case STM32_GPIO_MODE_IN:
+		dir_flags |= GPIOD_IS_IN;
+		break;
+	default:
+		break;
+	}
+	switch (stm32_gpio_get_pupd(regs, offset)) {
+	case STM32_GPIO_PUPD_UP:
+		dir_flags |= GPIOD_PULL_UP;
+		break;
+	case STM32_GPIO_PUPD_DOWN:
+		dir_flags |= GPIOD_PULL_DOWN;
+		break;
+	default:
+		break;
+	}
+	*flagsp = dir_flags;
+
+	return 0;
+}
+
 static const struct dm_gpio_ops gpio_stm32_ops = {
 	.direction_input	= stm32_gpio_direction_input,
 	.direction_output	= stm32_gpio_direction_output,
 	.get_value		= stm32_gpio_get_value,
 	.set_value		= stm32_gpio_set_value,
 	.get_function		= stm32_gpio_get_function,
+	.set_flags		= stm32_gpio_set_flags,
+	.get_flags		= stm32_gpio_get_flags,
 };
 
 static int gpio_stm32_probe(struct udevice *dev)
 {
 	struct stm32_gpio_priv *priv = dev_get_priv(dev);
+	struct gpio_dev_priv *uc_priv = dev_get_uclass_priv(dev);
+	struct ofnode_phandle_args args;
+	const char *name;
 	struct clk clk;
 	fdt_addr_t addr;
-	int ret;
+	int ret, i;
 
 	addr = dev_read_addr(dev);
 	if (addr == FDT_ADDR_T_NONE)
 		return -EINVAL;
 
 	priv->regs = (struct stm32_gpio_regs *)addr;
-
-	struct gpio_dev_priv *uc_priv = dev_get_uclass_priv(dev);
-	struct ofnode_phandle_args args;
-	const char *name;
-	int i;
 
 	name = dev_read_string(dev, "st,bank-name");
 	if (!name)
@@ -176,19 +273,21 @@ static int gpio_stm32_probe(struct udevice *dev)
 	ret = dev_read_phandle_with_args(dev, "gpio-ranges",
 					 NULL, 3, i, &args);
 
-	if (ret == -ENOENT) {
-		uc_priv->gpio_count = STM32_GPIOS_PER_BANK;
+	if (!ret && args.args_count < 3)
+		return -EINVAL;
+
+	uc_priv->gpio_count = STM32_GPIOS_PER_BANK;
+	if (ret == -ENOENT)
 		priv->gpio_range = GENMASK(STM32_GPIOS_PER_BANK - 1, 0);
-	}
 
 	while (ret != -ENOENT) {
 		priv->gpio_range |= GENMASK(args.args[2] + args.args[0] - 1,
 				    args.args[0]);
 
-		uc_priv->gpio_count += args.args[2];
-
 		ret = dev_read_phandle_with_args(dev, "gpio-ranges", NULL, 3,
 						 ++i, &args);
+		if (!ret && args.args_count < 3)
+			return -EINVAL;
 	}
 
 	dev_dbg(dev, "addr = 0x%p bank_name = %s gpio_count = %d gpio_range = 0x%x\n",
@@ -205,7 +304,7 @@ static int gpio_stm32_probe(struct udevice *dev)
 		dev_err(dev, "failed to enable clock\n");
 		return ret;
 	}
-	debug("clock enabled for device %s\n", dev->name);
+	dev_dbg(dev, "clock enabled\n");
 
 	return 0;
 }
@@ -216,5 +315,5 @@ U_BOOT_DRIVER(gpio_stm32) = {
 	.probe	= gpio_stm32_probe,
 	.ops	= &gpio_stm32_ops,
 	.flags	= DM_UC_FLAG_SEQ_ALIAS,
-	.priv_auto_alloc_size	= sizeof(struct stm32_gpio_priv),
+	.priv_auto	= sizeof(struct stm32_gpio_priv),
 };

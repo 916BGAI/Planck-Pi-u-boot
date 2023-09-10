@@ -13,12 +13,13 @@ config SYS_CONFIG_NAME
 	default "chromebook_samus" if TARGET_CHROMEBOOK_SAMUS
 	default "chromebook_samus" if TARGET_CHROMEBOOK_SAMUS_TPL
 
-config SYS_TEXT_BASE
+config TEXT_BASE
 	default 0xffe00000
 
 config BOARD_SPECIFIC_OPTIONS # dummy
 	def_bool y
 	select X86_RESET_VECTOR
+	select USE_EARLY_BOARD_INIT
 	select INTEL_BROADWELL
 	select HAVE_INTEL_ME
 	select BOARD_ROMSIZE_KB_8192

@@ -35,13 +35,6 @@
 # include <linux/ctype.h>
 #endif
 
-#ifndef	CONFIG_ENV_MIN_ENTRIES	/* minimum number of entries */
-#define	CONFIG_ENV_MIN_ENTRIES 64
-#endif
-#ifndef	CONFIG_ENV_MAX_ENTRIES	/* maximum number of entries */
-#define	CONFIG_ENV_MAX_ENTRIES 512
-#endif
-
 #define USED_FREE 0
 #define USED_DELETED -1
 
@@ -110,8 +103,10 @@ int hcreate_r(size_t nel, struct hsearch_data *htab)
 	}
 
 	/* There is still another table active. Return with error. */
-	if (htab->table != NULL)
+	if (htab->table != NULL) {
+		__set_errno(EINVAL);
 		return 0;
+	}
 
 	/* Change nel to the first prime number not smaller as nel. */
 	nel |= 1;		/* make odd */
@@ -124,8 +119,10 @@ int hcreate_r(size_t nel, struct hsearch_data *htab)
 	/* allocate memory and zero out */
 	htab->table = (struct env_entry_node *)calloc(htab->size + 1,
 						sizeof(struct env_entry_node));
-	if (htab->table == NULL)
+	if (htab->table == NULL) {
+		__set_errno(ENOMEM);
 		return 0;
+	}
 
 	/* everything went alright */
 	return 1;
@@ -320,8 +317,7 @@ int hsearch_r(struct env_entry item, enum env_action action,
 		 */
 		unsigned hval2;
 
-		if (htab->table[idx].used == USED_DELETED
-		    && !first_deleted)
+		if (htab->table[idx].used == USED_DELETED)
 			first_deleted = idx;
 
 		ret = _compare_and_overwrite_entry(item, action, retval, htab,
@@ -469,7 +465,7 @@ int hdelete_r(const char *key, struct hsearch_data *htab, int flag)
 	idx = hsearch_r(e, ENV_FIND, &ep, htab, 0);
 	if (idx == 0) {
 		__set_errno(ESRCH);
-		return 0;	/* not found */
+		return -ENOENT;	/* not found */
 	}
 
 	/* Check for permission */
@@ -478,7 +474,7 @@ int hdelete_r(const char *key, struct hsearch_data *htab, int flag)
 		debug("change_ok() rejected deleting variable "
 			"%s, skipping it!\n", key);
 		__set_errno(EPERM);
-		return 0;
+		return -EPERM;
 	}
 
 	/* If there is a callback, call it */
@@ -487,12 +483,12 @@ int hdelete_r(const char *key, struct hsearch_data *htab, int flag)
 		debug("callback() rejected deleting variable "
 			"%s, skipping it!\n", key);
 		__set_errno(EINVAL);
-		return 0;
+		return -EINVAL;
 	}
 
 	_hdelete(key, htab, ep, idx);
 
-	return 1;
+	return 0;
 }
 
 #if !(defined(CONFIG_SPL_BUILD) && !defined(CONFIG_SPL_SAVEENV))
@@ -822,6 +818,10 @@ int himport_r(struct hsearch_data *htab,
 	if (nvars)
 		memcpy(localvars, vars, sizeof(vars[0]) * nvars);
 
+#if CONFIG_IS_ENABLED(ENV_APPEND)
+	flag |= H_NOCLEAR;
+#endif
+
 	if ((flag & H_NOCLEAR) == 0 && !nvars) {
 		/* Destroy old hash table if one exists */
 		debug("Destroy Hash Table: %p table = %p\n", htab,
@@ -910,7 +910,7 @@ int himport_r(struct hsearch_data *htab,
 			if (!drop_var_from_set(name, nvars, localvars))
 				continue;
 
-			if (hdelete_r(name, htab, flag) == 0)
+			if (hdelete_r(name, htab, flag))
 				debug("DELETE ERROR ##############################\n");
 
 			continue;
@@ -942,9 +942,12 @@ int himport_r(struct hsearch_data *htab,
 		e.data = value;
 
 		hsearch_r(e, ENV_ENTER, &rv, htab, flag);
-		if (rv == NULL)
+#if !IS_ENABLED(CONFIG_ENV_WRITEABLE_LIST)
+		if (rv == NULL) {
 			printf("himport_r: can't insert \"%s=%s\" into hash table\n",
 				name, value);
+		}
+#endif
 
 		debug("INSERT: table %p, filled %d/%d rv %p ==> name=\"%s\" value=\"%s\"\n",
 			htab, htab->filled, htab->size,
@@ -969,7 +972,7 @@ int himport_r(struct hsearch_data *htab,
 		 * b) if the variable was not present in current env, we notify
 		 *    it might be a typo
 		 */
-		if (hdelete_r(localvars[i], htab, flag) == 0)
+		if (hdelete_r(localvars[i], htab, flag))
 			printf("WARNING: '%s' neither in running nor in imported env!\n", localvars[i]);
 		else
 			printf("WARNING: '%s' not in imported env, deleting it!\n", localvars[i]);

@@ -18,11 +18,7 @@
 #define ADDR_TO_P2(addr)	((((uintptr_t)(addr) & ~0xe0000000) | 0xa0000000))
 
 /* The ethernet controller needs to use physical addresses */
-#if defined(CONFIG_SH_32BIT)
-#define ADDR_TO_PHY(addr)	((((uintptr_t)(addr) & ~0xe0000000) | 0x40000000))
-#else
 #define ADDR_TO_PHY(addr)	((uintptr_t)(addr) & ~0xe0000000)
-#endif
 #elif defined(CONFIG_ARM)
 #ifndef inl
 #define inl	readl
@@ -33,8 +29,8 @@
 #endif /* defined(CONFIG_SH) */
 
 /* base padding size is 16 */
-#ifndef CONFIG_SH_ETHER_ALIGNE_SIZE
-#define CONFIG_SH_ETHER_ALIGNE_SIZE 16
+#ifndef CFG_SH_ETHER_ALIGNE_SIZE
+#define CFG_SH_ETHER_ALIGNE_SIZE 16
 #endif
 
 /* Number of supported ports */
@@ -51,7 +47,7 @@
 
 /* The size of the tx descriptor is determined by how much padding is used.
    4, 20, or 52 bytes of padding can be used */
-#define TX_DESC_PADDING	(CONFIG_SH_ETHER_ALIGNE_SIZE - 12)
+#define TX_DESC_PADDING	(CFG_SH_ETHER_ALIGNE_SIZE - 12)
 
 /* Tx descriptor. We always use 3 bytes of padding */
 struct tx_desc_s {
@@ -66,9 +62,9 @@ struct tx_desc_s {
 
 /* The size of the rx descriptor is determined by how much padding is used.
    4, 20, or 52 bytes of padding can be used */
-#define RX_DESC_PADDING	(CONFIG_SH_ETHER_ALIGNE_SIZE - 12)
+#define RX_DESC_PADDING	(CFG_SH_ETHER_ALIGNE_SIZE - 12)
 /* aligned cache line size */
-#define RX_BUF_ALIGNE_SIZE	(CONFIG_SH_ETHER_ALIGNE_SIZE > 32 ? 64 : 32)
+#define RX_BUF_ALIGNE_SIZE	(CFG_SH_ETHER_ALIGNE_SIZE > 32 ? 64 : 32)
 
 /* Rx descriptor. We always use 4 bytes of padding */
 struct rx_desc_s {
@@ -392,11 +388,11 @@ enum DMAC_M_BIT {
 #endif
 };
 
-#if CONFIG_SH_ETHER_ALIGNE_SIZE == 64
+#if CFG_SH_ETHER_ALIGNE_SIZE == 64
 # define EMDR_DESC EDMR_DL1
-#elif CONFIG_SH_ETHER_ALIGNE_SIZE == 32
+#elif CFG_SH_ETHER_ALIGNE_SIZE == 32
 # define EMDR_DESC EDMR_DL0
-#elif CONFIG_SH_ETHER_ALIGNE_SIZE == 16 /* Default */
+#elif CFG_SH_ETHER_ALIGNE_SIZE == 16 /* Default */
 # define EMDR_DESC 0
 #endif
 

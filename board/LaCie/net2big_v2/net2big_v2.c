@@ -14,6 +14,7 @@
 #include <i2c.h>
 #include <init.h>
 #include <net.h>
+#include <asm/global_data.h>
 #include <asm/mach-types.h>
 #include <asm/arch/cpu.h>
 #include <asm/arch/soc.h>
@@ -87,7 +88,7 @@ int board_init(void)
 
 #if defined(CONFIG_MISC_INIT_R)
 
-#if defined(CONFIG_CMD_I2C) && defined(CONFIG_SYS_I2C_G762_ADDR)
+#if defined(CONFIG_CMD_I2C) && defined(CFG_SYS_I2C_G762_ADDR)
 /*
  * Start I2C fan (GMT G762 controller)
  */
@@ -99,11 +100,11 @@ static void init_fan(void)
 
 	/* Enable open-loop and PWM modes */
 	data = 0x20;
-	if (i2c_write(CONFIG_SYS_I2C_G762_ADDR,
+	if (i2c_write(CFG_SYS_I2C_G762_ADDR,
 		      G762_REG_FAN_CMD1, 1, &data, 1) != 0)
 		goto err;
 	data = 0;
-	if (i2c_write(CONFIG_SYS_I2C_G762_ADDR,
+	if (i2c_write(CFG_SYS_I2C_G762_ADDR,
 		      G762_REG_SET_CNT, 1, &data, 1) != 0)
 		goto err;
 	/*
@@ -123,18 +124,18 @@ static void init_fan(void)
 	 * Start fan at low speed (2800 RPM):
 	 */
 	data = 0x08;
-	if (i2c_write(CONFIG_SYS_I2C_G762_ADDR,
+	if (i2c_write(CFG_SYS_I2C_G762_ADDR,
 		      G762_REG_SET_OUT, 1, &data, 1) != 0)
 		goto err;
 
 	return;
 err:
 	printf("Error: failed to start I2C fan @%02x\n",
-	       CONFIG_SYS_I2C_G762_ADDR);
+	       CFG_SYS_I2C_G762_ADDR);
 }
 #else
 static void init_fan(void) {}
-#endif /* CONFIG_CMD_I2C && CONFIG_SYS_I2C_G762_ADDR */
+#endif /* CONFIG_CMD_I2C && CFG_SYS_I2C_G762_ADDR */
 
 #if defined(CONFIG_NET2BIG_V2) && defined(CONFIG_KIRKWOOD_GPIO)
 /*
@@ -239,7 +240,7 @@ int misc_init_r(void)
 /* Configure and initialize PHY */
 void reset_phy(void)
 {
-	mv_phy_88e1116_init("egiga0", 8);
+	mv_phy_88e1116_init("ethernet-controller@72000", 8);
 }
 #endif
 

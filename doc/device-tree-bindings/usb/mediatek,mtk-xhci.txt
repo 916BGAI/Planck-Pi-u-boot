@@ -3,7 +3,9 @@ MediaTek xHCI
 The device node for USB3 host controller on MediaTek SoCs.
 
 Required properties:
- - compatible : should be "mediatek,mtk-xhci"
+ - compatible : should be one of
+	"mediatek,mtk-xhci"
+	"mediatek,mt8195-xhci"
  - reg : specifies physical base address and size of the registers
  - reg-names: should be "mac" for xHCI MAC and "ippc" for IP port control
  - power-domains : a phandle to USB power domain node to control USB's
@@ -25,6 +27,10 @@ Required properties:
 
 Optional properties:
  - vbus-supply : reference to the VBUS regulator;
+ - mediatek,u3p-dis-msk : mask to disable u3ports, bit0 for u3port0,
+	bit1 for u3port1, ... etc;
+ - mediatek,u2p-dis-msk : mask to disable u2ports, bit0 for u2port0,
+	bit1 for u2port1, ... etc;
 
 Example:
 xhci: usb@1a0c0000 {

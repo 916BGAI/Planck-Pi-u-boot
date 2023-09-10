@@ -52,6 +52,8 @@
 /* Machine Select */
 #define CSPR_MSEL			0x00000006
 #define CSPR_MSEL_SHIFT			1
+/* External Transceiver Enable */
+#define CSPR_TE			0x00000010
 /* NOR */
 #define CSPR_MSEL_NOR			0x00000000
 /* NAND */
@@ -138,7 +140,7 @@
 #define CSOR_NOR_ADM_SHIFT_SHIFT	13
 #define CSOR_NOR_ADM_SHIFT(n)	((n) << CSOR_NOR_ADM_SHIFT_SHIFT)
 /* Type of the NOR device hooked */
-#define CSOR_NOR_NOR_MODE_AYSNC_NOR	0x00000000
+#define CSOR_NOR_NOR_MODE_ASYNC_NOR	0x00000000
 #define CSOR_NOR_NOR_MODE_AVD_NOR	0x00000020
 /* Time for Read Enable High to Output High Impedance */
 #define CSOR_NOR_TRHZ_MASK		0x0000001C
@@ -799,7 +801,7 @@ void init_final_memctl_regs(void);
 #define IFC_RREGS_64KOFFSET	(64*1024)
 
 #define IFC_FCM_BASE_ADDR \
-	((struct fsl_ifc_fcm *)CONFIG_SYS_IFC_ADDR)
+	((struct fsl_ifc_fcm *)CFG_SYS_IFC_ADDR)
 
 #define get_ifc_cspr_ext(i)	\
 		(ifc_in32(&(IFC_FCM_BASE_ADDR)->cspr_cs[i].cspr_ext))

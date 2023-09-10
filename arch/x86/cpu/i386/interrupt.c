@@ -18,6 +18,7 @@
 #include <irq.h>
 #include <irq_func.h>
 #include <asm/control_regs.h>
+#include <asm/global_data.h>
 #include <asm/i8259.h>
 #include <asm/interrupt.h>
 #include <asm/io.h>
@@ -180,16 +181,11 @@ struct idt_entry {
 	u16	base_high;
 } __packed;
 
-struct desc_ptr {
-	unsigned short size;
-	unsigned long address;
-} __packed;
-
 struct idt_entry idt[256] __aligned(16);
 
-struct desc_ptr idt_ptr;
+struct idt_ptr idt_ptr;
 
-static inline void load_idt(const struct desc_ptr *dtr)
+static inline void load_idt(const struct idt_ptr *dtr)
 {
 	asm volatile("cs lidt %0" : : "m" (*dtr));
 }
@@ -232,6 +228,11 @@ int cpu_init_interrupts(void)
 	return 0;
 }
 
+void interrupt_read_idt(struct idt_ptr *ptr)
+{
+	asm volatile("sidt %0" : : "m" (*ptr));
+}
+
 void *x86_get_idt(void)
 {
 	return &idt_ptr;
@@ -265,6 +266,10 @@ int interrupt_init(void)
 	struct udevice *dev;
 	int ret;
 
+	/*
+	 * When running as an EFI application we are not in control of
+	 * interrupts and should leave them alone.
+	 */
 	if (!ll_boot_init())
 		return 0;
 
@@ -273,11 +278,6 @@ int interrupt_init(void)
 	if (ret && ret != -ENODEV)
 		return ret;
 
-	/*
-	 * When running as an EFI application we are not in control of
-	 * interrupts and should leave them alone.
-	 */
-#ifndef CONFIG_EFI_APP
 	/* Just in case... */
 	disable_interrupts();
 
@@ -293,14 +293,8 @@ int interrupt_init(void)
 	/* Initialize core interrupt and exception functionality of CPU */
 	cpu_init_interrupts();
 
-	/*
-	 * It is now safe to enable interrupts.
-	 *
-	 * TODO(sjg@chromium.org): But we don't handle these correctly when
-	 * booted from EFI.
-	 */
+	/* It is now safe to enable interrupts */
 	enable_interrupts();
-#endif
 
 	return 0;
 }

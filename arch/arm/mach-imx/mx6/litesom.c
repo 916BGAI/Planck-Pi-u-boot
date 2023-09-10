@@ -12,6 +12,7 @@
 #include <asm/arch/mx6ul_pins.h>
 #include <asm/arch/mx6-pins.h>
 #include <asm/arch/sys_proto.h>
+#include <asm/global_data.h>
 #include <asm/gpio.h>
 #include <asm/mach-imx/iomux-v3.h>
 #include <asm/mach-imx/boot_mode.h>
@@ -56,7 +57,7 @@ static struct fsl_esdhc_cfg emmc_cfg = {USDHC2_BASE_ADDR, 0, 8};
 
 #define EMMC_PWR_GPIO	IMX_GPIO_NR(4, 10)
 
-int litesom_mmc_init(bd_t *bis)
+int litesom_mmc_init(struct bd_info *bis)
 {
 	int ret;
 
@@ -171,7 +172,7 @@ static void spl_dram_init(void)
 	 * Get actual RAM size, so we can adjust DDR row size for <512M
 	 * memories
 	 */
-	ram_size = get_ram_size((void *)CONFIG_SYS_SDRAM_BASE, SZ_512M);
+	ram_size = get_ram_size((void *)CFG_SYS_SDRAM_BASE, SZ_512M);
 	if (ram_size < SZ_512M) {
 		mem_ddr.rowaddr = 14;
 		mx6_dram_cfg(&ddr_sysinfo, &mx6_mmcd_calib, &mem_ddr);

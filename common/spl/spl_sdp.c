@@ -19,6 +19,8 @@ static int spl_sdp_load_image(struct spl_image_info *spl_image,
 
 	usb_gadget_initialize(controller_index);
 
+	board_usb_init(controller_index, USB_INIT_DEVICE);
+
 	g_dnl_clear_detach();
 	ret = g_dnl_register("usb_dnl_sdp");
 	if (ret) {
@@ -37,7 +39,7 @@ static int spl_sdp_load_image(struct spl_image_info *spl_image,
 	 * or it loads a FIT image and returns it to be handled by the SPL
 	 * code.
 	 */
-	ret = spl_sdp_handle(controller_index, spl_image);
+	ret = spl_sdp_handle(controller_index, spl_image, bootdev);
 	debug("SDP ended\n");
 
 	usb_gadget_release(controller_index);

@@ -10,9 +10,11 @@
 #include <init.h>
 #include <malloc.h>
 #include <asm/armv7.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
 #include <asm/arch-rockchip/bootrom.h>
 #include <asm/arch-rockchip/clock.h>
+#include <asm/arch-rockchip/cpu_rk3288.h>
 #include <asm/arch-rockchip/cru.h>
 #include <asm/arch-rockchip/hardware.h>
 #include <asm/arch-rockchip/grf_rk3288.h>
@@ -26,8 +28,8 @@ DECLARE_GLOBAL_DATA_PTR;
 #define GRF_BASE	0xff770000
 
 const char * const boot_devices[BROM_LAST_BOOTSOURCE + 1] = {
-	[BROM_BOOTSOURCE_EMMC] = "/dwmmc@ff0f0000",
-	[BROM_BOOTSOURCE_SD] = "/dwmmc@ff0c0000",
+	[BROM_BOOTSOURCE_EMMC] = "/mmc@ff0f0000",
+	[BROM_BOOTSOURCE_SD] = "/mmc@ff0c0000",
 };
 
 #ifdef CONFIG_SPL_BUILD
@@ -113,6 +115,35 @@ __weak int rk3288_board_late_init(void)
 int rk_board_late_init(void)
 {
 	return rk3288_board_late_init();
+}
+
+static int ft_rk3288w_setup(void *blob)
+{
+	const char *path;
+	int offs, ret;
+
+	path = "/clock-controller@ff760000";
+	offs = fdt_path_offset(blob, path);
+	if (offs < 0) {
+		debug("failed to found fdt path %s\n", path);
+		return offs;
+	}
+
+	ret = fdt_setprop_string(blob, offs, "compatible", "rockchip,rk3288w-cru");
+	if (ret) {
+		printf("failed to set rk3288w-cru compatible (ret=%d)\n", ret);
+		return ret;
+	}
+
+	return ret;
+}
+
+int ft_system_setup(void *blob, struct bd_info *bd)
+{
+	if (soc_is_rk3288w())
+		return ft_rk3288w_setup(blob);
+
+	return 0;
 }
 
 static int do_clock(struct cmd_tbl *cmdtp, int flag, int argc,

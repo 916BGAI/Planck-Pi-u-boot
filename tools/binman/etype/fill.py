@@ -5,7 +5,7 @@
 
 from binman.entry import Entry
 from dtoc import fdt_util
-from patman import tools
+from u_boot_pylib import tools
 
 class Entry_fill(Entry):
     """An entry which is filled to a particular byte value
@@ -22,14 +22,13 @@ class Entry_fill(Entry):
     byte value of a region.
     """
     def __init__(self, section, etype, node):
-        Entry.__init__(self, section, etype, node)
+        super().__init__(section, etype, node)
+        self.required_props = ['size']
 
     def ReadNode(self):
-        Entry.ReadNode(self)
-        if self.size is None:
-            self.Raise("'fill' entry must have a size property")
+        super().ReadNode()
         self.fill_value = fdt_util.GetByte(self._node, 'fill-byte', 0)
 
     def ObtainContents(self):
-        self.SetContents(tools.GetBytes(self.fill_value, self.size))
+        self.SetContents(tools.get_bytes(self.fill_value, self.size))
         return True

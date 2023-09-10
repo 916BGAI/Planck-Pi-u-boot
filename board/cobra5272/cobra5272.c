@@ -6,6 +6,7 @@
 
 #include <common.h>
 #include <init.h>
+#include <asm/global_data.h>
 #include <asm/immap.h>
 
 DECLARE_GLOBAL_DATA_PTR;
@@ -27,7 +28,7 @@ int dram_init(void)
 	/* Dummy write to start SDRAM */
 	*((volatile unsigned long *) 0) = 0;
 
-	gd->ram_size = CONFIG_SYS_SDRAM_SIZE * 1024 * 1024;
+	gd->ram_size = CFG_SYS_SDRAM_SIZE * 1024 * 1024;
 
 	return 0;
 };

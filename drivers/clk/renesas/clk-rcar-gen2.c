@@ -15,22 +15,17 @@
 #include <dm.h>
 #include <errno.h>
 #include <log.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
+#include <linux/clk-provider.h>
 
 #include <dt-bindings/clock/renesas-cpg-mssr.h>
 
 #include "renesas-cpg-mssr.h"
 #include "rcar-gen2-cpg.h"
 
-#define CPG_RST_MODEMR		0x0060
-
 #define CPG_PLL0CR		0x00d8
 #define CPG_SDCKCR		0x0074
-
-struct clk_div_table {
-	u8	val;
-	u8	div;
-};
 
 /* SDHI divisors */
 static const struct clk_div_table cpg_sdh_div_table[] = {
@@ -62,14 +57,14 @@ static int gen2_clk_enable(struct clk *clk)
 {
 	struct gen2_clk_priv *priv = dev_get_priv(clk->dev);
 
-	return renesas_clk_endisable(clk, priv->base, true);
+	return renesas_clk_endisable(clk, priv->base, priv->info, true);
 }
 
 static int gen2_clk_disable(struct clk *clk)
 {
 	struct gen2_clk_priv *priv = dev_get_priv(clk->dev);
 
-	return renesas_clk_endisable(clk, priv->base, false);
+	return renesas_clk_endisable(clk, priv->base, priv->info, false);
 }
 
 static ulong gen2_clk_get_rate(struct clk *clk)
@@ -257,7 +252,7 @@ static ulong gen2_clk_set_rate(struct clk *clk, ulong rate)
 static int gen2_clk_of_xlate(struct clk *clk, struct ofnode_phandle_args *args)
 {
 	if (args->args_count != 2) {
-		debug("Invaild args_count: %d\n", args->args_count);
+		debug("Invalid args_count: %d\n", args->args_count);
 		return -EINVAL;
 	}
 
@@ -283,7 +278,7 @@ int gen2_clk_probe(struct udevice *dev)
 	u32 cpg_mode;
 	int ret;
 
-	priv->base = (struct gen2_base *)devfdt_get_addr(dev);
+	priv->base = dev_read_addr_ptr(dev);
 	if (!priv->base)
 		return -EINVAL;
 

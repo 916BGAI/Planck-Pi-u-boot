@@ -98,7 +98,10 @@ int run_usb_dnl_gadget(int usbctrl_index, char *usb_dnl_gadget)
 		}
 #endif
 
-		WATCHDOG_RESET();
+		if (dfu_reinit_needed)
+			goto exit;
+
+		schedule();
 		usb_gadget_handle_interrupts(usbctrl_index);
 	}
 exit:

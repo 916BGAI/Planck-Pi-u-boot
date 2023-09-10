@@ -15,6 +15,7 @@
 #include <asm/arch/rmobile.h>
 #include <asm/arch/sh_sdhi.h>
 #include <asm/arch/sys_proto.h>
+#include <asm/global_data.h>
 #include <asm/gpio.h>
 #include <asm/io.h>
 #include <asm/mach-types.h>
@@ -311,14 +312,14 @@ int board_early_init_f(void)
 int board_init(void)
 {
 	/* adress of boot parameters */
-	gd->bd->bi_boot_params = CONFIG_SYS_SDRAM_BASE + 0x100;
+	gd->bd->bi_boot_params = CFG_SYS_SDRAM_BASE + 0x100;
 
 	return 0;
 }
 
 /* Added for BLANCHE(R-CarV2H board) */
 #ifndef CONFIG_DM_ETH
-int board_eth_init(bd_t *bis)
+int board_eth_init(struct bd_info *bis)
 {
 	int rc = 0;
 
@@ -326,7 +327,7 @@ int board_eth_init(bd_t *bis)
 	struct eth_device *dev;
 	uchar eth_addr[6];
 
-	rc = smc911x_initialize(0, CONFIG_SMC911X_BASE);
+	rc = smc911x_initialize(0, CFG_SMC911X_BASE);
 
 	if (!eth_env_get_enetaddr("ethaddr", eth_addr)) {
 		dev = eth_get_dev_by_index(0);
@@ -359,7 +360,7 @@ int dram_init_banksize(void)
 	return 0;
 }
 
-void reset_cpu(ulong addr)
+void reset_cpu(void)
 {
 	struct udevice *dev;
 	const u8 pmic_bus = 6;

@@ -8,23 +8,13 @@
 #include <init.h>
 #include <miiphy.h>
 #include <netdev.h>
+#include <asm/global_data.h>
 
 #include <asm/arch/clock.h>
 #include <asm/arch/sys_proto.h>
 #include <asm/io.h>
 
 DECLARE_GLOBAL_DATA_PTR;
-
-int dram_init(void)
-{
-	/* rom_pointer[1] contains the size of TEE occupies */
-	if (rom_pointer[1])
-		gd->ram_size = PHYS_SDRAM_SIZE - rom_pointer[1];
-	else
-		gd->ram_size = PHYS_SDRAM_SIZE;
-
-	return 0;
-}
 
 #if IS_ENABLED(CONFIG_FEC_MXC)
 static int setup_fec(void)
@@ -70,9 +60,10 @@ int board_mmc_get_env_dev(int devno)
 
 int board_late_init(void)
 {
-#ifdef CONFIG_ENV_VARS_UBOOT_RUNTIME_CONFIG
-	env_set("board_name", "EVK");
-	env_set("board_rev", "iMX8MM");
-#endif
+	if (IS_ENABLED(CONFIG_ENV_VARS_UBOOT_RUNTIME_CONFIG)) {
+		env_set("board_name", "EVK");
+		env_set("board_rev", "iMX8MM");
+	}
+
 	return 0;
 }

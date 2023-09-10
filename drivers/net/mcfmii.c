@@ -8,13 +8,10 @@
 #include <config.h>
 #include <net.h>
 #include <netdev.h>
+#include <asm/global_data.h>
 #include <linux/delay.h>
 
-#ifdef CONFIG_MCF547x_8x
-#include <asm/fsl_mcdmafec.h>
-#else
 #include <asm/fec.h>
-#endif
 #include <asm/immap.h>
 #include <linux/mii.h>
 
@@ -35,11 +32,11 @@ DECLARE_GLOBAL_DATA_PTR;
 #define mk_mii_write(ADDR, REG, VAL)	(0x50020000 | ((ADDR << 23) | \
 					 (REG & 0x1f) << 18) | (VAL & 0xffff))
 
-#ifndef CONFIG_SYS_UNSPEC_PHYID
-#	define CONFIG_SYS_UNSPEC_PHYID		0
+#ifndef CFG_SYS_UNSPEC_PHYID
+#	define CFG_SYS_UNSPEC_PHYID		0
 #endif
-#ifndef CONFIG_SYS_UNSPEC_STRID
-#	define CONFIG_SYS_UNSPEC_STRID		0
+#ifndef CFG_SYS_UNSPEC_STRID
+#	define CFG_SYS_UNSPEC_STRID		0
 #endif
 
 typedef struct phy_info_struct {
@@ -61,8 +58,8 @@ phy_info_t phyinfo[] = {
 	{0x20005C90, "N83848"},		/* National 83848 */
 	{0x20005CA2, "N83849"},		/* National 83849 */
 	{0x01814400, "QS6612"},		/* QS6612 */
-#if defined(CONFIG_SYS_UNSPEC_PHYID) && defined(CONFIG_SYS_UNSPEC_STRID)
-	{CONFIG_SYS_UNSPEC_PHYID, CONFIG_SYS_UNSPEC_STRID},
+#if defined(CFG_SYS_UNSPEC_PHYID) && defined(CFG_SYS_UNSPEC_STRID)
+	{CFG_SYS_UNSPEC_PHYID, CFG_SYS_UNSPEC_STRID},
 #endif
 	{0, 0}
 };
@@ -88,11 +85,7 @@ void mii_reset(fec_info_t *info)
 /* send command to phy using mii, wait for result */
 uint mii_send(uint mii_cmd)
 {
-#ifdef CONFIG_DM_ETH
 	struct udevice *dev;
-#else
-	struct eth_device *dev;
-#endif
 	fec_info_t *info;
 	volatile FEC_T *ep;
 	uint mii_reply;
@@ -100,7 +93,7 @@ uint mii_send(uint mii_cmd)
 
 	/* retrieve from register structure */
 	dev = eth_get_dev();
-	info = dev->priv;
+	info = dev_get_priv(dev);
 
 	ep = (FEC_T *) info->miibase;
 
@@ -199,15 +192,9 @@ int mii_discover_phy(fec_info_t *info)
 }
 #endif				/* CONFIG_SYS_DISCOVER_PHY */
 
-void mii_init(void) __attribute__((weak,alias("__mii_init")));
-
-void __mii_init(void)
+__weak void mii_init(void)
 {
-#ifdef CONFIG_DM_ETH
 	struct udevice *dev;
-#else
-	struct eth_device *dev;
-#endif
 	fec_info_t *info;
 	volatile FEC_T *fecp;
 	int miispd = 0, i = 0;
@@ -216,7 +203,7 @@ void __mii_init(void)
 
 	/* retrieve from register structure */
 	dev = eth_get_dev();
-	info = dev->priv;
+	info = dev_get_priv(dev);
 
 	fecp = (FEC_T *) info->miibase;
 

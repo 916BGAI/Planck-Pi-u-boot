@@ -1230,11 +1230,15 @@ static int arasan_probe(struct udevice *dev)
 	struct nand_drv *info = &arasan->nand_ctrl;
 	struct nand_config *nand = &info->config;
 	struct mtd_info *mtd;
+	ofnode child;
 	int err = -1;
 
-	info->reg = (struct nand_regs *)dev_read_addr(dev);
+	info->reg = dev_read_addr_ptr(dev);
 	mtd = nand_to_mtd(nand_chip);
 	nand_set_controller_data(nand_chip, &arasan->nand_ctrl);
+
+	ofnode_for_each_subnode(child, dev_ofnode(dev))
+		nand_set_flash_node(nand_chip, child);
 
 #ifdef CONFIG_SYS_NAND_NO_SUBPAGE_WRITE
 	nand_chip->options |= NAND_NO_SUBPAGE_WRITE;
@@ -1248,7 +1252,6 @@ static int arasan_probe(struct udevice *dev)
 	/* Buffer read/write routines */
 	nand_chip->read_buf = arasan_nand_read_buf;
 	nand_chip->write_buf = arasan_nand_write_buf;
-	nand_chip->bbt_options = NAND_BBT_USE_FLASH;
 
 	writel(0x0, &info->reg->cmd_reg);
 	writel(0x0, &info->reg->pgm_reg);
@@ -1306,11 +1309,11 @@ static const struct udevice_id arasan_nand_dt_ids[] = {
 };
 
 U_BOOT_DRIVER(arasan_nand) = {
-	.name = "arasan-nand",
+	.name = "arasan_nand",
 	.id = UCLASS_MTD,
 	.of_match = arasan_nand_dt_ids,
 	.probe = arasan_probe,
-	.priv_auto_alloc_size = sizeof(struct arasan_nand_info),
+	.priv_auto	= sizeof(struct arasan_nand_info),
 };
 
 void board_nand_init(void)
@@ -1319,7 +1322,7 @@ void board_nand_init(void)
 	int ret;
 
 	ret = uclass_get_device_by_driver(UCLASS_MTD,
-					  DM_GET_DRIVER(arasan_nand), &dev);
+					  DM_DRIVER_GET(arasan_nand), &dev);
 	if (ret && ret != -ENODEV)
 		pr_err("Failed to initialize %s. (error %d)\n", dev->name, ret);
 }

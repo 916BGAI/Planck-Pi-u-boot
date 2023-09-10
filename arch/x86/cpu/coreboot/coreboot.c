@@ -10,13 +10,13 @@
 #include <fdtdec.h>
 #include <init.h>
 #include <usb.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
 #include <asm/msr.h>
 #include <asm/mtrr.h>
-#include <asm/arch/sysinfo.h>
+#include <asm/cb_sysinfo.h>
 #include <asm/arch/timestamp.h>
-
-DECLARE_GLOBAL_DATA_PTR;
+#include <dm/ofnode.h>
 
 int arch_cpu_init(void)
 {
@@ -42,7 +42,7 @@ int print_cpuinfo(void)
 	return default_print_cpuinfo();
 }
 
-static void board_final_cleanup(void)
+static void board_final_init(void)
 {
 	/*
 	 * Un-cache the ROM so the kernel has one
@@ -64,7 +64,7 @@ static void board_final_cleanup(void)
 		mtrr_close(&state, true);
 	}
 
-	if (!fdtdec_get_config_bool(gd->fdt_blob, "u-boot,no-apm-finalize")) {
+	if (!ofnode_conf_read_bool("u-boot,no-apm-finalize")) {
 		/*
 		 * Issue SMI to coreboot to lock down ME and registers
 		 * when allowed via device tree
@@ -77,10 +77,10 @@ static void board_final_cleanup(void)
 int last_stage_init(void)
 {
 	/* start usb so that usb keyboard can be used as input device */
-	if (CONFIG_IS_ENABLED(USB_KEYBOARD))
+	if (IS_ENABLED(CONFIG_USB_KEYBOARD))
 		usb_init();
 
-	board_final_cleanup();
+	board_final_init();
 
 	return 0;
 }

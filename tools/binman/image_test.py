@@ -6,8 +6,8 @@
 
 import unittest
 
-from image import Image
-from patman.test_util import capture_sys_output
+from binman.image import Image
+from u_boot_pylib.test_util import capture_sys_output
 
 class TestImage(unittest.TestCase):
     def testInvalidFormat(self):

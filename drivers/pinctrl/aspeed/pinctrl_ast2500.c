@@ -61,6 +61,8 @@ static const struct ast2500_group_config ast2500_groups[] = {
 	{ "MDIO2", 5, (1 << 2) },
 	{ "SD1", 5, (1 << 0) },
 	{ "SD2", 5, (1 << 1) },
+	{ "FWSPICS1", 3, (1 << 24) },
+	{ "SPI1CS1", 1, (1 << 15) },
 };
 
 static int ast2500_pinctrl_get_groups_count(struct udevice *dev)
@@ -121,7 +123,7 @@ U_BOOT_DRIVER(pinctrl_ast2500) = {
 	.name = "aspeed_ast2500_pinctrl",
 	.id = UCLASS_PINCTRL,
 	.of_match = ast2500_pinctrl_ids,
-	.priv_auto_alloc_size = sizeof(struct ast2500_pinctrl_priv),
+	.priv_auto	= sizeof(struct ast2500_pinctrl_priv),
 	.ops = &ast2500_pinctrl_ops,
 	.probe = ast2500_pinctrl_probe,
 };

@@ -19,8 +19,8 @@
 #ifndef TI_OMAP5_SECURE_BOOT_RESV_SRAM_SZ
 #define TI_OMAP5_SECURE_BOOT_RESV_SRAM_SZ (0)
 #endif
-#ifndef CONFIG_SECURE_RUNTIME_RESV_SRAM_SZ
-#define CONFIG_SECURE_RUNTIME_RESV_SRAM_SZ (0)
+#ifndef CFG_SECURE_RUNTIME_RESV_SRAM_SZ
+#define CFG_SECURE_RUNTIME_RESV_SRAM_SZ (0)
 #endif
 
 static u32 hs_irq_skip[] = {
@@ -29,7 +29,7 @@ static u32 hs_irq_skip[] = {
 	118	/* One interrupt for Crypto DMA by secure world */
 };
 
-static int ft_hs_fixup_crossbar(void *fdt, bd_t *bd)
+static int ft_hs_fixup_crossbar(void *fdt, struct bd_info *bd)
 {
 	const char *path;
 	int offs;
@@ -92,8 +92,8 @@ static int ft_hs_fixup_crossbar(void *fdt, bd_t *bd)
 }
 
 #if ((TI_OMAP5_SECURE_BOOT_RESV_SRAM_SZ != 0) || \
-    (CONFIG_SECURE_RUNTIME_RESV_SRAM_SZ != 0))
-static int ft_hs_fixup_sram(void *fdt, bd_t *bd)
+    (CFG_SECURE_RUNTIME_RESV_SRAM_SZ != 0))
+static int ft_hs_fixup_sram(void *fdt, struct bd_info *bd)
 {
 	const char *path;
 	int offs;
@@ -116,7 +116,7 @@ static int ft_hs_fixup_sram(void *fdt, bd_t *bd)
 	temp[0] = cpu_to_fdt32(0);
 	/* reservation size */
 	temp[1] = cpu_to_fdt32(max(TI_OMAP5_SECURE_BOOT_RESV_SRAM_SZ,
-				   CONFIG_SECURE_RUNTIME_RESV_SRAM_SZ));
+				   CFG_SECURE_RUNTIME_RESV_SRAM_SZ));
 	fdt_delprop(fdt, offs, "reg");
 	ret = fdt_setprop(fdt, offs, "reg", temp, 2 * sizeof(u32));
 	if (ret < 0) {
@@ -128,10 +128,10 @@ static int ft_hs_fixup_sram(void *fdt, bd_t *bd)
 	return 0;
 }
 #else
-static int ft_hs_fixup_sram(void *fdt, bd_t *bd) { return 0; }
+static int ft_hs_fixup_sram(void *fdt, struct bd_info *bd) { return 0; }
 #endif
 
-static void ft_hs_fixups(void *fdt, bd_t *bd)
+static void ft_hs_fixups(void *fdt, struct bd_info *bd)
 {
 	/* Check we are running on an HS/EMU device type */
 	if (GP_DEVICE != get_device_type()) {
@@ -148,7 +148,7 @@ static void ft_hs_fixups(void *fdt, bd_t *bd)
 	hang();
 }
 #else
-static void ft_hs_fixups(void *fdt, bd_t *bd)
+static void ft_hs_fixups(void *fdt, struct bd_info *bd)
 {
 }
 #endif /* #ifdef CONFIG_TI_SECURE_DEVICE */
@@ -255,7 +255,7 @@ static int ft_fixup_clocks(void *fdt, const char **names, u32 *rates, int num)
 	return 0;
 }
 
-static void ft_opp_clock_fixups(void *fdt, bd_t *bd)
+static void ft_opp_clock_fixups(void *fdt, struct bd_info *bd)
 {
 	const char **clk_names;
 	u32 *clk_rates;
@@ -299,7 +299,7 @@ static void ft_opp_clock_fixups(void *fdt, bd_t *bd)
 	}
 }
 #else
-static void ft_opp_clock_fixups(void *fdt, bd_t *bd) { }
+static void ft_opp_clock_fixups(void *fdt, struct bd_info *bd) { }
 #endif /* CONFIG_TARGET_DRA7XX_EVM || CONFIG_TARGET_AM57XX_EVM */
 
 /*
@@ -307,7 +307,7 @@ static void ft_opp_clock_fixups(void *fdt, bd_t *bd) { }
  * fixups should remain in the board files which is where
  * this function should be called from.
  */
-void ft_cpu_setup(void *fdt, bd_t *bd)
+void ft_cpu_setup(void *fdt, struct bd_info *bd)
 {
 	ft_hs_fixups(fdt, bd);
 	ft_opp_clock_fixups(fdt, bd);

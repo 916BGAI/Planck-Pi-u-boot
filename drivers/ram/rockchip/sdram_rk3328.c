@@ -48,15 +48,14 @@ struct rockchip_dmc_plat {
 };
 
 #if CONFIG_IS_ENABLED(OF_PLATDATA)
-static int conv_of_platdata(struct udevice *dev)
+static int conv_of_plat(struct udevice *dev)
 {
-	struct rockchip_dmc_plat *plat = dev_get_platdata(dev);
+	struct rockchip_dmc_plat *plat = dev_get_plat(dev);
 	struct dtd_rockchip_rk3328_dmc *dtplat = &plat->dtplat;
 	int ret;
 
-	ret = regmap_init_mem_platdata(dev, dtplat->reg,
-				       ARRAY_SIZE(dtplat->reg) / 2,
-				       &plat->map);
+	ret = regmap_init_mem_plat(dev, dtplat->reg, sizeof(dtplat->reg[0]),
+				   ARRAY_SIZE(dtplat->reg) / 2, &plat->map);
 	if (ret)
 		return ret;
 
@@ -507,7 +506,7 @@ static int sdram_init_detect(struct dram_info *dram,
 		writel(sys_reg3, &dram->grf->os_reg[3]);
 	}
 
-	sdram_print_ddr_info(&sdram_params->ch.cap_info, &sdram_params->base);
+	sdram_print_ddr_info(&sdram_params->ch.cap_info, &sdram_params->base, 0);
 
 	return 0;
 }
@@ -515,17 +514,17 @@ static int sdram_init_detect(struct dram_info *dram,
 static int rk3328_dmc_init(struct udevice *dev)
 {
 	struct dram_info *priv = dev_get_priv(dev);
-	struct rockchip_dmc_plat *plat = dev_get_platdata(dev);
+	struct rockchip_dmc_plat *plat = dev_get_plat(dev);
 	int ret;
 
-#if !CONFIG_IS_ENABLED(OF_PLATDATA)
+#if CONFIG_IS_ENABLED(OF_REAL)
 	struct rk3328_sdram_params *params = &plat->sdram_params;
 #else
 	struct dtd_rockchip_rk3328_dmc *dtplat = &plat->dtplat;
 	struct rk3328_sdram_params *params =
 					(void *)dtplat->rockchip_sdram_params;
 
-	ret = conv_of_platdata(dev);
+	ret = conv_of_plat(dev);
 	if (ret)
 		return ret;
 #endif
@@ -548,10 +547,10 @@ static int rk3328_dmc_init(struct udevice *dev)
 	return 0;
 }
 
-static int rk3328_dmc_ofdata_to_platdata(struct udevice *dev)
+static int rk3328_dmc_of_to_plat(struct udevice *dev)
 {
-#if !CONFIG_IS_ENABLED(OF_PLATDATA)
-	struct rockchip_dmc_plat *plat = dev_get_platdata(dev);
+#if CONFIG_IS_ENABLED(OF_REAL)
+	struct rockchip_dmc_plat *plat = dev_get_plat(dev);
 	int ret;
 
 	ret = dev_read_u32_array(dev, "rockchip,sdram-params",
@@ -581,7 +580,7 @@ static int rk3328_dmc_probe(struct udevice *dev)
 
 	priv->grf = syscon_get_first_range(ROCKCHIP_SYSCON_GRF);
 	debug("%s: grf=%p\n", __func__, priv->grf);
-	priv->info.base = CONFIG_SYS_SDRAM_BASE;
+	priv->info.base = CFG_SYS_SDRAM_BASE;
 	priv->info.size = rockchip_sdram_size(
 				(phys_addr_t)&priv->grf->os_reg[2]);
 #endif
@@ -606,17 +605,17 @@ static const struct udevice_id rk3328_dmc_ids[] = {
 	{ }
 };
 
-U_BOOT_DRIVER(dmc_rk3328) = {
+U_BOOT_DRIVER(rockchip_rk3328_dmc) = {
 	.name = "rockchip_rk3328_dmc",
 	.id = UCLASS_RAM,
 	.of_match = rk3328_dmc_ids,
 	.ops = &rk3328_dmc_ops,
 #ifdef CONFIG_TPL_BUILD
-	.ofdata_to_platdata = rk3328_dmc_ofdata_to_platdata,
+	.of_to_plat = rk3328_dmc_of_to_plat,
 #endif
 	.probe = rk3328_dmc_probe,
-	.priv_auto_alloc_size = sizeof(struct dram_info),
+	.priv_auto	= sizeof(struct dram_info),
 #ifdef CONFIG_TPL_BUILD
-	.platdata_auto_alloc_size = sizeof(struct rockchip_dmc_plat),
+	.plat_auto	= sizeof(struct rockchip_dmc_plat),
 #endif
 };

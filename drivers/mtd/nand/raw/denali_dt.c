@@ -148,6 +148,8 @@ static int denali_dt_probe(struct udevice *dev)
 	if (ret) {
 		dev_warn(dev, "Can't get reset: %d\n", ret);
 	} else {
+		reset_assert_bulk(&resets);
+		udelay(2);
 		reset_deassert_bulk(&resets);
 
 		/*
@@ -155,7 +157,11 @@ static int denali_dt_probe(struct udevice *dev)
 		 * kicked (bootstrap process). The driver must wait until it is
 		 * finished. Otherwise, it will result in unpredictable behavior.
 		 */
-		udelay(200);
+		ret = denali_wait_reset_complete(denali);
+		if (ret) {
+			dev_err(denali->dev, "reset not completed.\n");
+			return ret;
+		}
 	}
 
 	return denali_init(denali);
@@ -166,7 +172,7 @@ U_BOOT_DRIVER(denali_nand_dt) = {
 	.id = UCLASS_MTD,
 	.of_match = denali_nand_dt_ids,
 	.probe = denali_dt_probe,
-	.priv_auto_alloc_size = sizeof(struct denali_nand_info),
+	.priv_auto	= sizeof(struct denali_nand_info),
 };
 
 void board_nand_init(void)
@@ -175,7 +181,7 @@ void board_nand_init(void)
 	int ret;
 
 	ret = uclass_get_device_by_driver(UCLASS_MTD,
-					  DM_GET_DRIVER(denali_nand_dt),
+					  DM_DRIVER_GET(denali_nand_dt),
 					  &dev);
 	if (ret && ret != -ENODEV)
 		pr_err("Failed to initialize Denali NAND controller. (error %d)\n",

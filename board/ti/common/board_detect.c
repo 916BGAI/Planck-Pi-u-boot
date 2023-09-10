@@ -22,7 +22,7 @@
 
 #include "board_detect.h"
 
-#if !defined(CONFIG_DM_I2C)
+#if !CONFIG_IS_ENABLED(DM_I2C)
 /**
  * ti_i2c_eeprom_init - Initialize an i2c bus and probe for a device
  * @i2c_bus: i2c bus number to initialize
@@ -86,10 +86,11 @@ __weak void gpi2c_init(void)
 static int __maybe_unused ti_i2c_eeprom_get(int bus_addr, int dev_addr,
 					    u32 header, u32 size, uint8_t *ep)
 {
-	u32 hdr_read;
 	int rc;
+	uint8_t offset_test;
+	bool one_byte_addressing = true;
 
-#if defined(CONFIG_DM_I2C)
+#if CONFIG_IS_ENABLED(DM_I2C)
 	struct udevice *dev;
 	struct udevice *bus;
 
@@ -103,37 +104,49 @@ static int __maybe_unused ti_i2c_eeprom_get(int bus_addr, int dev_addr,
 	/*
 	 * Read the header first then only read the other contents.
 	 */
-	rc = i2c_set_chip_offset_len(dev, 2);
+	rc = i2c_set_chip_offset_len(dev, 1);
 	if (rc)
 		return rc;
 
-	rc = dm_i2c_read(dev, 0, (uint8_t *)&hdr_read, 4);
-	if (rc)
-		return rc;
+	/*
+	 * Skip checking result here since this could be a valid i2c read fail
+	 * on some boards that use 2 byte addressing.
+	 * We must allow for fall through to check the data if 2 byte
+	 * addressing works
+	 */
+	(void)dm_i2c_read(dev, 0, ep, size);
+
+	if (*((u32 *)ep) != header)
+		one_byte_addressing = false;
+
+	/*
+	 * Handle case of bad 2 byte eeproms that responds to 1 byte addressing
+	 * but gets stuck in const addressing when read requests are performed
+	 * on offsets. We perform an offset test to make sure it is not a 2 byte
+	 * eeprom that works with 1 byte addressing but just without an offset
+	 */
+
+	rc = dm_i2c_read(dev, 0x1, &offset_test, sizeof(offset_test));
+
+	if (*((u32 *)ep) != (header & 0xFF))
+		one_byte_addressing = false;
 
 	/* Corrupted data??? */
-	if (hdr_read != header) {
-		rc = dm_i2c_read(dev, 0, (uint8_t *)&hdr_read, 4);
+	if (!one_byte_addressing) {
 		/*
 		 * read the eeprom header using i2c again, but use only a
-		 * 1 byte address (some legacy boards need this..)
+		 * 2 byte address (some newer boards need this..)
 		 */
-		if (rc) {
-			rc =  i2c_set_chip_offset_len(dev, 1);
-			if (rc)
-				return rc;
+		rc = i2c_set_chip_offset_len(dev, 2);
+		if (rc)
+			return rc;
 
-			rc = dm_i2c_read(dev, 0, (uint8_t *)&hdr_read, 4);
-		}
+		rc = dm_i2c_read(dev, 0, ep, size);
 		if (rc)
 			return rc;
 	}
-	if (hdr_read != header)
+	if (*((u32 *)ep) != header)
 		return -1;
-
-	rc = dm_i2c_read(dev, 0, ep, size);
-	if (rc)
-		return rc;
 #else
 	u32 byte;
 
@@ -145,33 +158,44 @@ static int __maybe_unused ti_i2c_eeprom_get(int bus_addr, int dev_addr,
 	/*
 	 * Read the header first then only read the other contents.
 	 */
-	byte = 2;
+	byte = 1;
 
-	rc = i2c_read(dev_addr, 0x0, byte, (uint8_t *)&hdr_read, 4);
-	if (rc)
-		return rc;
+	/*
+	 * Skip checking result here since this could be a valid i2c read fail
+	 * on some boards that use 2 byte addressing.
+	 * We must allow for fall through to check the data if 2 byte
+	 * addressing works
+	 */
+	(void)i2c_read(dev_addr, 0x0, byte, ep, size);
+
+	if (*((u32 *)ep) != header)
+		one_byte_addressing = false;
+
+	/*
+	 * Handle case of bad 2 byte eeproms that responds to 1 byte addressing
+	 * but gets stuck in const addressing when read requests are performed
+	 * on offsets. We perform an offset test to make sure it is not a 2 byte
+	 * eeprom that works with 1 byte addressing but just without an offset
+	 */
+
+	rc = i2c_read(dev_addr, 0x1, byte, &offset_test, sizeof(offset_test));
+
+	if (*((u32 *)ep) != (header & 0xFF))
+		one_byte_addressing = false;
 
 	/* Corrupted data??? */
-	if (hdr_read != header) {
-		rc = i2c_read(dev_addr, 0x0, byte, (uint8_t *)&hdr_read, 4);
+	if (!one_byte_addressing) {
 		/*
 		 * read the eeprom header using i2c again, but use only a
-		 * 1 byte address (some legacy boards need this..)
+		 * 2 byte address (some newer boards need this..)
 		 */
-		byte = 1;
-		if (rc) {
-			rc = i2c_read(dev_addr, 0x0, byte, (uint8_t *)&hdr_read,
-				      4);
-		}
+		byte = 2;
+		rc = i2c_read(dev_addr, 0x0, byte, ep, size);
 		if (rc)
 			return rc;
 	}
-	if (hdr_read != header)
+	if (*((u32 *)ep) != header)
 		return -1;
-
-	rc = i2c_read(dev_addr, 0x0, byte, ep, size);
-	if (rc)
-		return rc;
 #endif
 	return 0;
 }
@@ -440,6 +464,7 @@ int __maybe_unused ti_i2c_eeprom_am6_get(int bus_addr, int dev_addr,
 	struct ti_am6_eeprom_record_board_id board_id;
 	struct ti_am6_eeprom_record record;
 	int rc;
+	int consecutive_bad_records = 0;
 
 	/* Initialize with a known bad marker for i2c fails.. */
 	memset(ep, 0, sizeof(*ep));
@@ -476,7 +501,7 @@ int __maybe_unused ti_i2c_eeprom_am6_get(int bus_addr, int dev_addr,
 	 */
 	eeprom_addr = sizeof(board_id);
 
-	while (true) {
+	while (consecutive_bad_records < 10) {
 		rc = dm_i2c_read(dev, eeprom_addr, (uint8_t *)&record.header,
 				 sizeof(record.header));
 		if (rc)
@@ -512,6 +537,7 @@ int __maybe_unused ti_i2c_eeprom_am6_get(int bus_addr, int dev_addr,
 				pr_err("%s: EEPROM parsing error!\n", __func__);
 				return rc;
 			}
+			consecutive_bad_records = 0;
 		} else {
 			/*
 			 * We may get here in case of larger records which
@@ -519,6 +545,7 @@ int __maybe_unused ti_i2c_eeprom_am6_get(int bus_addr, int dev_addr,
 			 */
 			pr_err("%s: Ignoring record id %u\n", __func__,
 			       record.header.id);
+			consecutive_bad_records++;
 		}
 
 		eeprom_addr += record.header.len;
@@ -669,17 +696,17 @@ void __maybe_unused set_board_info_env(char *name)
 
 	if (name)
 		env_set("board_name", name);
-	else if (ep->name)
+	else if (strlen(ep->name) != 0)
 		env_set("board_name", ep->name);
 	else
 		env_set("board_name", unknown);
 
-	if (ep->version)
+	if (strlen(ep->version) != 0)
 		env_set("board_rev", ep->version);
 	else
 		env_set("board_rev", unknown);
 
-	if (ep->serial)
+	if (strlen(ep->serial) != 0)
 		env_set("board_serial", ep->serial);
 	else
 		env_set("board_serial", unknown);
@@ -692,22 +719,22 @@ void __maybe_unused set_board_info_env_am6(char *name)
 
 	if (name)
 		env_set("board_name", name);
-	else if (ep->name)
+	else if (strlen(ep->name) != 0)
 		env_set("board_name", ep->name);
 	else
 		env_set("board_name", unknown);
 
-	if (ep->version)
+	if (strlen(ep->version) != 0)
 		env_set("board_rev", ep->version);
 	else
 		env_set("board_rev", unknown);
 
-	if (ep->software_revision)
+	if (strlen(ep->software_revision) != 0)
 		env_set("board_software_revision", ep->software_revision);
 	else
 		env_set("board_software_revision", unknown);
 
-	if (ep->serial)
+	if (strlen(ep->serial) != 0)
 		env_set("board_serial", ep->serial);
 	else
 		env_set("board_serial", unknown);

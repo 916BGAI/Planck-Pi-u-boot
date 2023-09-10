@@ -12,9 +12,9 @@
 #include <init.h>
 #include <net.h>
 #include <vsprintf.h>
-#include <watchdog.h>
 #include <command.h>
 #include <netdev.h>
+#include <asm/global_data.h>
 #include <linux/delay.h>
 
 #include <asm/immap.h>
@@ -101,55 +101,12 @@ int print_cpuinfo(void)
 };
 #endif /* CONFIG_DISPLAY_CPUINFO */
 
-#if defined(CONFIG_WATCHDOG)
-/* Called by macro WATCHDOG_RESET */
-void watchdog_reset(void)
-{
-	wdog_t *wdp = (wdog_t *) (MMAP_WDOG);
-
-	/* Count register */
-	out_be16(&wdp->sr, 0x5555);
-	out_be16(&wdp->sr, 0xaaaa);
-}
-
-int watchdog_disable(void)
-{
-	wdog_t *wdp = (wdog_t *) (MMAP_WDOG);
-
-	/* UserManual, once the wdog is disabled, wdog cannot be re-enabled */
-	/* halted watchdog timer */
-	setbits_be16(&wdp->cr, WTM_WCR_HALTED);
-
-	puts("WATCHDOG:disabled\n");
-	return (0);
-}
-
-int watchdog_init(void)
-{
-	wdog_t *wdp = (wdog_t *) (MMAP_WDOG);
-	u32 wdog_module = 0;
-
-	/* set timeout and enable watchdog */
-	wdog_module = ((CONFIG_SYS_CLK / 1000) * CONFIG_WATCHDOG_TIMEOUT);
-#ifdef CONFIG_M5329
-	out_be16(&wdp->mr, wdog_module / 8192);
-#else
-	out_be16(&wdp->mr, wdog_module / 4096);
-#endif
-
-	out_be16(&wdp->cr, WTM_WCR_EN);
-	puts("WATCHDOG:enabled\n");
-
-	return (0);
-}
-#endif				/* CONFIG_WATCHDOG */
-
 #if defined(CONFIG_MCFFEC)
 /* Default initializations for MCFFEC controllers.  To override,
  * create a board-specific function called:
- * 	int board_eth_init(bd_t *bis)
+ *	int board_eth_init(struct bd_info *bis)
  */
-int cpu_eth_init(bd_t *bis)
+int cpu_eth_init(struct bd_info *bis)
 {
 	return mcffec_initialize(bis);
 }

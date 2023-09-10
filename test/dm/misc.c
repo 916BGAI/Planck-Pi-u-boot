@@ -8,6 +8,7 @@
 #include <dm.h>
 #include <dm/test.h>
 #include <misc.h>
+#include <test/test.h>
 #include <test/ut.h>
 
 static int dm_test_misc(struct unit_test_state *uts)
@@ -50,13 +51,13 @@ static int dm_test_misc(struct unit_test_state *uts)
 	/* Read back last issued ioctl */
 	ut_assertok(misc_call(dev, 2, NULL, 0, &last_ioctl,
 			      sizeof(last_ioctl)));
-	ut_asserteq(6, last_ioctl)
+	ut_asserteq(6, last_ioctl);
 
 	ut_assertok(misc_ioctl(dev, 23, NULL));
 	/* Read back last issued ioctl */
 	ut_assertok(misc_call(dev, 2, NULL, 0, &last_ioctl,
 			      sizeof(last_ioctl)));
-	ut_asserteq(23, last_ioctl)
+	ut_asserteq(23, last_ioctl);
 
 	/* Enable / disable tests */
 
@@ -80,4 +81,4 @@ static int dm_test_misc(struct unit_test_state *uts)
 	return 0;
 }
 
-DM_TEST(dm_test_misc, DM_TESTF_SCAN_FDT);
+DM_TEST(dm_test_misc, UT_TESTF_SCAN_FDT);

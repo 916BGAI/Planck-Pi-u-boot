@@ -1,13 +1,14 @@
 /* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * (C) Copyright 2002-2010
+ * Copyright 2020 NXP
  * Wolfgang Denk, DENX Software Engineering, wd@denx.de.
  */
 
 #ifndef	__ASM_GBL_DATA_H
 #define __ASM_GBL_DATA_H
 
-#include "config.h"
+#include <config.h>
 #include "asm/types.h"
 
 /* Architecture-specific global data */
@@ -15,18 +16,8 @@ struct arch_global_data {
 #if defined(CONFIG_FSL_ESDHC)
 	u32 sdhc_clk;
 	u32 sdhc_per_clk;
-#if defined(CONFIG_FSL_ESDHC_ADAPTER_IDENT)
-	u8 sdhc_adapter;
-#endif
 #endif
 #if defined(CONFIG_MPC8xx)
-	unsigned long brg_clk;
-#endif
-#if defined(CONFIG_CPM2)
-	/* There are many clocks on the MPC8260 - see page 9-5 */
-	unsigned long vco_out;
-	unsigned long cpm_clk;
-	unsigned long scc_clk;
 	unsigned long brg_clk;
 #endif
 	/* TODO: sjg@chromium.org: Should these be unslgned long? */
@@ -41,15 +32,10 @@ struct arch_global_data {
 	u32 tsec1_clk;
 	u32 tsec2_clk;
 	u32 usbdr_clk;
-# elif defined(CONFIG_ARCH_MPC8309)
-	u32 usbdr_clk;
 # endif
 # if defined(CONFIG_ARCH_MPC834X)
 	u32 usbmph_clk;
 # endif /* CONFIG_ARCH_MPC834X */
-# if defined(CONFIG_ARCH_MPC8315)
-	u32 tdm_clk;
-# endif
 	u32 core_clk;
 	u32 enc_clk;
 	u32 lbiu_clk;
@@ -59,7 +45,7 @@ struct arch_global_data {
 	u32 pciexp1_clk;
 	u32 pciexp2_clk;
 # endif
-# if defined(CONFIG_ARCH_MPC837X) || defined(CONFIG_ARCH_MPC8315)
+# if defined(CONFIG_ARCH_MPC837X)
 	u32 sata_clk;
 # endif
 # if defined(CONFIG_ARCH_MPC8360)
@@ -93,10 +79,6 @@ struct arch_global_data {
 	unsigned long arbiter_event_attributes;
 	unsigned long arbiter_event_address;
 #endif
-#if defined(CONFIG_CPM2)
-	unsigned int dp_alloc_base;
-	unsigned int dp_alloc_top;
-#endif
 #ifdef CONFIG_SYS_FPGA_COUNT
 	unsigned fpga_state[CONFIG_SYS_FPGA_COUNT];
 #endif
@@ -110,12 +92,6 @@ struct arch_global_data {
 
 #include <asm-generic/global_data.h>
 
-#if 1
 #define DECLARE_GLOBAL_DATA_PTR     register volatile gd_t *gd asm ("r2")
-#else /* We could use plain global data, but the resulting code is bigger */
-#define XTRN_DECLARE_GLOBAL_DATA_PTR	extern
-#define DECLARE_GLOBAL_DATA_PTR     XTRN_DECLARE_GLOBAL_DATA_PTR \
-				    gd_t *gd
-#endif
 
 #endif /* __ASM_GBL_DATA_H */

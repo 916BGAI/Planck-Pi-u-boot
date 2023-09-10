@@ -23,6 +23,7 @@
 #define INVALID_ID	0xffff
 
 #define GTC_CNTCR_REG	0x0
+#define GTC_CNTFID0_REG	0x20
 #define GTC_CNTR_EN	0x3
 
 /**
@@ -31,13 +32,17 @@
  * @rproc_rst:		rproc reset control data
  * @sci:		Pointer to TISCI handle
  * @tsp:		TISCI processor control helper structure
+ * @gtc_clk:		GTC clock description
  * @gtc_base:		Timer base address.
  */
 struct k3_arm64_privdata {
+	bool has_cluster_node;
+	struct power_domain cluster_pwrdmn;
 	struct power_domain rproc_pwrdmn;
 	struct power_domain gtc_pwrdmn;
 	struct reset_ctl rproc_rst;
 	struct ti_sci_proc tsp;
+	struct clk gtc_clk;
 	void *gtc_base;
 };
 
@@ -52,6 +57,7 @@ struct k3_arm64_privdata {
 static int k3_arm64_load(struct udevice *dev, ulong addr, ulong size)
 {
 	struct k3_arm64_privdata *rproc = dev_get_priv(dev);
+	ulong gtc_rate;
 	int ret;
 
 	dev_dbg(dev, "%s addr = 0x%lx, size = 0x%lx\n", __func__, addr, size);
@@ -60,6 +66,36 @@ static int k3_arm64_load(struct udevice *dev, ulong addr, ulong size)
 	ret = ti_sci_proc_request(&rproc->tsp);
 	if (ret)
 		return ret;
+
+	ret = power_domain_on(&rproc->gtc_pwrdmn);
+	if (ret) {
+		dev_err(dev, "power_domain_on(&rproc->gtc_pwrdmn) failed: %d\n",
+			ret);
+		return ret;
+	}
+
+	gtc_rate = clk_get_rate(&rproc->gtc_clk);
+	dev_dbg(dev, "GTC RATE= %d\n", (u32) gtc_rate);
+	/* Store the clock frequency down for GTC users to pick  up */
+	writel((u32)gtc_rate, rproc->gtc_base + GTC_CNTFID0_REG);
+
+	/* Enable the timer before starting remote core */
+	writel(GTC_CNTR_EN, rproc->gtc_base + GTC_CNTCR_REG);
+
+	/*
+	 * Setting the right clock frequency would have taken care by
+	 * assigned-clock-rates during the device probe. So no need to
+	 * set the frequency again here.
+	 */
+	if (rproc->has_cluster_node) {
+		ret = power_domain_on(&rproc->cluster_pwrdmn);
+		if (ret) {
+			dev_err(dev,
+				"power_domain_on(&rproc->cluster_pwrdmn) failed: %d\n",
+				ret);
+			return ret;
+		}
+	}
 
 	return ti_sci_proc_set_config(&rproc->tsp, addr, 0, 0);
 }
@@ -76,24 +112,11 @@ static int k3_arm64_start(struct udevice *dev)
 	int ret;
 
 	dev_dbg(dev, "%s\n", __func__);
-
-	ret = power_domain_on(&rproc->gtc_pwrdmn);
-	if (ret) {
-		dev_err(dev, "power_domain_on() failed: %d\n", ret);
-		return ret;
-	}
-
-	/* Enable the timer before starting remote core */
-	writel(GTC_CNTR_EN, rproc->gtc_base + GTC_CNTCR_REG);
-
-	/*
-	 * Setting the right clock frequency would have taken care by
-	 * assigned-clock-rates during the device probe. So no need to
-	 * set the frequency again here.
-	 */
 	ret = power_domain_on(&rproc->rproc_pwrdmn);
 	if (ret) {
-		dev_err(dev, "power_domain_on() failed: %d\n", ret);
+		dev_err(dev,
+			"power_domain_on(&rproc->rproc_pwrdmn) failed: %d\n",
+			ret);
 		return ret;
 	}
 
@@ -157,15 +180,29 @@ static int k3_arm64_of_to_priv(struct udevice *dev,
 
 	dev_dbg(dev, "%s\n", __func__);
 
+	/* Cluster needs to be powered on if firewalls are being configured */
+	rproc->has_cluster_node = true;
+	ret = power_domain_get_by_index(dev, &rproc->cluster_pwrdmn, 2);
+	if (ret) {
+		dev_dbg(dev, "warning: power_domain_get_cluster() failed: %d\n", ret);
+		rproc->has_cluster_node = false;
+	}
+
 	ret = power_domain_get_by_index(dev, &rproc->rproc_pwrdmn, 1);
 	if (ret) {
-		dev_err(dev, "power_domain_get() failed: %d\n", ret);
+		dev_err(dev, "power_domain_get_rproc() failed: %d\n", ret);
 		return ret;
 	}
 
 	ret = power_domain_get_by_index(dev, &rproc->gtc_pwrdmn, 0);
 	if (ret) {
 		dev_err(dev, "power_domain_get() failed: %d\n", ret);
+		return ret;
+	}
+
+	ret = clk_get_by_index(dev, 0, &rproc->gtc_clk);
+	if (ret) {
+		dev_err(dev, "clk_get failed: %d\n", ret);
 		return ret;
 	}
 
@@ -226,6 +263,6 @@ U_BOOT_DRIVER(k3_arm64) = {
 	.id = UCLASS_REMOTEPROC,
 	.ops = &k3_arm64_ops,
 	.probe = k3_arm64_probe,
-	.priv_auto_alloc_size = sizeof(struct k3_arm64_privdata),
+	.priv_auto	= sizeof(struct k3_arm64_privdata),
 	.flags = DM_FLAG_DEFAULT_PD_CTRL_OFF,
 };

@@ -18,6 +18,7 @@
 #include <watchdog.h>
 #include <command.h>
 #include <mpc83xx.h>
+#include <asm/global_data.h>
 #include <asm/processor.h>
 #include <linux/delay.h>
 #include <linux/libfdt.h>
@@ -164,7 +165,7 @@ unsigned long get_tbclk(void)
 }
 #endif
 
-#if defined(CONFIG_WATCHDOG)
+#if defined(CONFIG_WATCHDOG) && !defined(CONFIG_WDT)
 void watchdog_reset (void)
 {
 	int re_enable = disable_interrupts();
@@ -179,29 +180,11 @@ void watchdog_reset (void)
 }
 #endif
 
-#ifndef CONFIG_DM_ETH
-/*
- * Initializes on-chip ethernet controllers.
- * to override, implement board_eth_init()
- */
-int cpu_eth_init(bd_t *bis)
-{
-#if defined(CONFIG_UEC_ETH)
-	uec_standard_init(bis);
-#endif
-
-#if defined(CONFIG_TSEC_ENET)
-	tsec_standard_init(bis);
-#endif
-	return 0;
-}
-#endif /* !CONFIG_DM_ETH */
-
 /*
  * Initializes on-chip MMC controllers.
  * to override, implement board_mmc_init()
  */
-int cpu_mmc_init(bd_t *bis)
+int cpu_mmc_init(struct bd_info *bis)
 {
 #ifdef CONFIG_FSL_ESDHC
 	return fsl_esdhc_mmc_init(bis);

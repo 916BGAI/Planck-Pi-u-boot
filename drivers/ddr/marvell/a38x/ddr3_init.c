@@ -6,7 +6,11 @@
 #include "ddr3_init.h"
 #include "mv_ddr_common.h"
 
+#if defined(CONFIG_DDR4)
+static char *ddr_type = "DDR4";
+#else /* CONFIG_DDR4 */
 static char *ddr_type = "DDR3";
+#endif /* CONFIG_DDR4 */
 
 /*
  * generic_init_controller controls D-unit configuration:
@@ -61,6 +65,13 @@ int ddr3_init(void)
 	mv_ddr_mc_init();
 
 	if (!is_manual_cal_done) {
+#if defined(CONFIG_DDR4)
+		status = mv_ddr4_calibration_adjust(0, 1, 0);
+		if (status != MV_OK) {
+			printf("%s: failed (0x%x)\n", __func__, status);
+			return status;
+		}
+#endif
 	}
 
 
@@ -77,9 +88,6 @@ int ddr3_init(void)
 		return status;
 	}
 
-#if defined(CONFIG_PHY_STATIC_PRINT)
-	mv_ddr_phy_static_print();
-#endif
 
 	/* Post MC/PHY initializations */
 	mv_ddr_post_training_soc_config(ddr_type);
@@ -104,6 +112,7 @@ int ddr3_init(void)
 static int mv_ddr_training_params_set(u8 dev_num)
 {
 	struct tune_train_params params;
+	struct mv_ddr_topology_map *tm = mv_ddr_topology_map_get();
 	int status;
 	u32 cs_num;
 	int ck_delay;
@@ -122,6 +131,19 @@ static int mv_ddr_training_params_set(u8 dev_num)
 	params.g_zpodt_ctrl = TUNE_TRAINING_PARAMS_P_ODT_CTRL;
 	params.g_znodt_ctrl = TUNE_TRAINING_PARAMS_N_ODT_CTRL;
 
+#if defined(CONFIG_DDR4)
+	params.g_zpodt_data = TUNE_TRAINING_PARAMS_P_ODT_DATA_DDR4;
+	params.g_odt_config = TUNE_TRAINING_PARAMS_ODT_CONFIG_DDR4;
+	params.g_rtt_nom = TUNE_TRAINING_PARAMS_RTT_NOM_DDR4;
+	params.g_dic = TUNE_TRAINING_PARAMS_DIC_DDR4;
+	if (cs_num == 1) {
+		params.g_rtt_wr =  TUNE_TRAINING_PARAMS_RTT_WR_1CS;
+		params.g_rtt_park = TUNE_TRAINING_PARAMS_RTT_PARK_1CS;
+	} else {
+		params.g_rtt_wr =  TUNE_TRAINING_PARAMS_RTT_WR_2CS;
+		params.g_rtt_park = TUNE_TRAINING_PARAMS_RTT_PARK_2CS;
+	}
+#else /* CONFIG_DDR4 */
 	params.g_zpodt_data = TUNE_TRAINING_PARAMS_P_ODT_DATA;
 	params.g_dic = TUNE_TRAINING_PARAMS_DIC;
 	params.g_rtt_nom = TUNE_TRAINING_PARAMS_RTT_NOM;
@@ -132,9 +154,14 @@ static int mv_ddr_training_params_set(u8 dev_num)
 		params.g_rtt_wr = TUNE_TRAINING_PARAMS_RTT_WR_2CS;
 		params.g_odt_config = TUNE_TRAINING_PARAMS_ODT_CONFIG_2CS;
 	}
+#endif /* CONFIG_DDR4 */
 
 	if (ck_delay > 0)
 		params.ck_delay = ck_delay;
+
+	/* Use platform specific override ODT value */
+	if (tm->odt_config)
+		params.g_odt_config = tm->odt_config;
 
 	status = ddr3_tip_tune_training_params(dev_num, &params);
 	if (MV_OK != status) {

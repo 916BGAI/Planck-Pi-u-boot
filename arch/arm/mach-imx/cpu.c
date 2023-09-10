@@ -8,6 +8,7 @@
 
 #include <bootm.h>
 #include <common.h>
+#include <dm.h>
 #include <init.h>
 #include <log.h>
 #include <net.h>
@@ -23,6 +24,8 @@
 #include <ipu_pixfmt.h>
 #include <thermal.h>
 #include <sata.h>
+#include <dm/device-internal.h>
+#include <dm/uclass-internal.h>
 
 #ifdef CONFIG_FSL_ESDHC_IMX
 #include <fsl_esdhc_imx.h>
@@ -96,7 +99,15 @@ const char *get_imx_type(u32 imxtype)
 {
 	switch (imxtype) {
 	case MXC_CPU_IMX8MP:
-		return "8MP";	/* Quad-core version of the imx8mp */
+		return "8MP[8]";	/* Quad-core version of the imx8mp */
+	case MXC_CPU_IMX8MPD:
+		return "8MP Dual[3]";	/* Dual-core version of the imx8mp */
+	case MXC_CPU_IMX8MPL:
+		return "8MP Lite[4]";	/* Quad-core Lite version of the imx8mp */
+	case MXC_CPU_IMX8MP6:
+		return "8MP[6]";	/* Quad-core version of the imx8mp, NPU fused */
+	case MXC_CPU_IMX8MPUL:
+		return "8MP UltraLite";	/* Quad-core UltraLite version of the imx8mp */
 	case MXC_CPU_IMX8MN:
 		return "8MNano Quad"; /* Quad-core version */
 	case MXC_CPU_IMX8MND:
@@ -108,7 +119,13 @@ const char *get_imx_type(u32 imxtype)
 	case MXC_CPU_IMX8MNDL:
 		return "8MNano DualLite"; /* Dual-core Lite version */
 	case MXC_CPU_IMX8MNSL:
-		return "8MNano SoloLite"; /* Single-core Lite version */
+		return "8MNano SoloLite";/* Single-core Lite version of the imx8mn */
+	case MXC_CPU_IMX8MNUQ:
+		return "8MNano UltraLite Quad";/* Quad-core UltraLite version of the imx8mn */
+	case MXC_CPU_IMX8MNUD:
+		return "8MNano UltraLite Dual";/* Dual-core UltraLite version of the imx8mn */
+	case MXC_CPU_IMX8MNUS:
+		return "8MNano UltraLite Solo";/* Single-core UltraLite version of the imx8mn */
 	case MXC_CPU_IMX8MM:
 		return "8MMQ";	/* Quad-core version of the imx8mm */
 	case MXC_CPU_IMX8MML:
@@ -216,12 +233,13 @@ int print_cpuinfo(void)
 		ret = thermal_get_temp(thermal_dev, &cpu_tmp);
 
 		if (!ret)
-			printf(" at %dC\n", cpu_tmp);
+			printf(" at %dC", cpu_tmp);
 		else
 			debug(" - invalid sensor data\n");
 	} else {
 		debug(" - invalid sensor device\n");
 	}
+	puts("\n");
 #endif
 
 	printf("Reset cause: %s\n", get_reset_cause());
@@ -229,7 +247,7 @@ int print_cpuinfo(void)
 }
 #endif
 
-int cpu_eth_init(bd_t *bis)
+int cpu_eth_init(struct bd_info *bis)
 {
 	int rc = -ENODEV;
 
@@ -245,7 +263,7 @@ int cpu_eth_init(bd_t *bis)
  * Initializes on-chip MMC controllers.
  * to override, implement board_mmc_init()
  */
-int cpu_mmc_init(bd_t *bis)
+int cpu_mmc_init(struct bd_info *bis)
 {
 	return fsl_esdhc_mmc_init(bis);
 }
@@ -267,9 +285,19 @@ u32 get_ahb_clk(void)
 
 void arch_preboot_os(void)
 {
-#if defined(CONFIG_PCIE_IMX) && !CONFIG_IS_ENABLED(DM_PCI)
-	imx_pcie_remove();
+#if defined(CONFIG_IMX_AHCI)
+	struct udevice *dev;
+	int rc;
+
+	rc = uclass_find_device(UCLASS_AHCI, 0, &dev);
+	if (!rc && dev) {
+		rc = device_remove(dev, DM_REMOVE_NORMAL);
+		if (rc)
+			printf("Cannot remove SATA device '%s' (err=%d)\n",
+				dev->name, rc);
+	}
 #endif
+
 #if defined(CONFIG_SATA)
 	if (!is_mx6sdl()) {
 		sata_remove(0);
@@ -282,7 +310,7 @@ void arch_preboot_os(void)
 	/* disable video before launching O/S */
 	ipuv3_fb_shutdown();
 #endif
-#if defined(CONFIG_VIDEO_MXS) && !defined(CONFIG_DM_VIDEO)
+#if defined(CONFIG_VIDEO_MXS) && !defined(CONFIG_VIDEO)
 	lcdif_power_down();
 #endif
 }
@@ -377,6 +405,9 @@ u32 get_cpu_speed_grade_hz(void)
  */
 #define OCOTP_TESTER3_TEMP_SHIFT	6
 
+/* iMX8MP uses OCOTP_TESTER3[6:5] for Market segment */
+#define IMX8MP_OCOTP_TESTER3_TEMP_SHIFT	5
+
 u32 get_cpu_temp_grade(int *minc, int *maxc)
 {
 	struct ocotp_regs *ocotp = (struct ocotp_regs *)OCOTP_BASE_ADDR;
@@ -386,7 +417,10 @@ u32 get_cpu_temp_grade(int *minc, int *maxc)
 	uint32_t val;
 
 	val = readl(&fuse->tester3);
-	val >>= OCOTP_TESTER3_TEMP_SHIFT;
+	if (is_imx8mp())
+		val >>= IMX8MP_OCOTP_TESTER3_TEMP_SHIFT;
+	else
+		val >>= OCOTP_TESTER3_TEMP_SHIFT;
 	val &= 0x3;
 
 	if (minc && maxc) {
@@ -437,12 +471,14 @@ enum boot_device get_boot_device(void)
 	case BOOT_TYPE_SPINOR:
 		boot_dev = SPI_NOR_BOOT;
 		break;
-#ifdef CONFIG_IMX8M
 	case BOOT_TYPE_USB:
 		boot_dev = USB_BOOT;
 		break;
-#endif
 	default:
+#ifdef CONFIG_IMX8M
+		if (((readl(SRC_BASE_ADDR + 0x58) & 0x00007FFF) >> 12) == 0x4)
+			boot_dev = QSPI_BOOT;
+#endif
 		break;
 	}
 
@@ -474,3 +510,7 @@ char nxp_board_rev_string(void)
 	return (*rev + nxp_board_rev() - 1);
 }
 #endif
+
+__weak void reset_cpu(void)
+{
+}

@@ -6,7 +6,6 @@
  */
 #include <common.h>
 #include <asm/bitops.h>
-#include <asm/cpm_85xx.h>
 #include <pci.h>
 #include <dm.h>
 #include <asm/fsl_law.h>
@@ -23,10 +22,33 @@ static int mpc85xx_pci_dm_read_config(const struct udevice *dev, pci_dev_t bdf,
 	struct mpc85xx_pci_priv *priv = dev_get_priv(dev);
 	u32 addr;
 
-	addr = bdf | (offset & 0xfc) | ((offset & 0xf00) << 16) | 0x80000000;
+	if (offset > 0xff) {
+		*value = pci_get_ff(size);
+		return 0;
+	}
+
+	/* Skip mpc85xx PCI controller's ATMU inbound registers */
+	if (PCI_BUS(bdf) == 0 && PCI_DEV(bdf) == 0 && PCI_FUNC(bdf) == 0 &&
+	    (offset & ~3) >= PCI_BASE_ADDRESS_0 && (offset & ~3) <= PCI_BASE_ADDRESS_5) {
+		*value = 0;
+		return 0;
+	}
+
+	addr = PCI_CONF1_ADDRESS(PCI_BUS(bdf), PCI_DEV(bdf), PCI_FUNC(bdf), offset);
 	out_be32(priv->cfg_addr, addr);
 	sync();
-	*value = pci_conv_32_to_size(in_le32(priv->cfg_data), offset, size);
+
+	switch (size) {
+	case PCI_SIZE_8:
+		*value = in_8(priv->cfg_data + (offset & 3));
+		break;
+	case PCI_SIZE_16:
+		*value = in_le16(priv->cfg_data + (offset & 2));
+		break;
+	case PCI_SIZE_32:
+		*value = in_le32(priv->cfg_data);
+		break;
+	}
 
 	return 0;
 }
@@ -38,14 +60,35 @@ static int mpc85xx_pci_dm_write_config(struct udevice *dev, pci_dev_t bdf,
 	struct mpc85xx_pci_priv *priv = dev_get_priv(dev);
 	u32 addr;
 
-	addr = bdf | (offset & 0xfc) | ((offset & 0xf00) << 16) | 0x80000000;
+	if (offset > 0xff)
+		return 0;
+
+	/* Skip mpc85xx PCI controller's ATMU inbound registers */
+	if (PCI_BUS(bdf) == 0 && PCI_DEV(bdf) == 0 && PCI_FUNC(bdf) == 0 &&
+	    (offset & ~3) >= PCI_BASE_ADDRESS_0 && (offset & ~3) <= PCI_BASE_ADDRESS_5)
+		return 0;
+
+	addr = PCI_CONF1_ADDRESS(PCI_BUS(bdf), PCI_DEV(bdf), PCI_FUNC(bdf), offset);
 	out_be32(priv->cfg_addr, addr);
 	sync();
-	out_le32(priv->cfg_data, pci_conv_size_to_32(0, value, offset, size));
+
+	switch (size) {
+	case PCI_SIZE_8:
+		out_8(priv->cfg_data + (offset & 3), value);
+		break;
+	case PCI_SIZE_16:
+		out_le16(priv->cfg_data + (offset & 2), value);
+		break;
+	case PCI_SIZE_32:
+		out_le32(priv->cfg_data, value);
+		break;
+	}
+	sync();
 
 	return 0;
 }
 
+#ifdef CONFIG_FSL_LAW
 static int
 mpc85xx_pci_dm_setup_laws(struct pci_region *io, struct pci_region *mem,
 			  struct pci_region *pre)
@@ -68,6 +111,7 @@ mpc85xx_pci_dm_setup_laws(struct pci_region *io, struct pci_region *mem,
 
 	return 0;
 }
+#endif
 
 static int mpc85xx_pci_dm_probe(struct udevice *dev)
 {
@@ -85,22 +129,24 @@ static int mpc85xx_pci_dm_probe(struct udevice *dev)
 		return -EINVAL;
 	}
 
+#ifdef CONFIG_FSL_LAW
 	mpc85xx_pci_dm_setup_laws(io, mem, pre);
+#endif
 
 	pcix = priv->cfg_addr;
 	/* BAR 1: memory */
-	out_be32(&pcix->potar1, (mem->bus_start >> 12) & 0x000fffff);
-	out_be32(&pcix->potear1, 0);
-	out_be32(&pcix->powbar1, (mem->phys_start >> 12) & 0x000fffff);
-	out_be32(&pcix->powbear1, 0);
+	out_be32(&pcix->potar1, mem->bus_start >> 12);
+	out_be32(&pcix->potear1, (u64)mem->bus_start >> 44);
+	out_be32(&pcix->powbar1, mem->phys_start >> 12);
+	out_be32(&pcix->powbear1, (u64)mem->phys_start >> 44);
 	out_be32(&pcix->powar1, (POWAR_EN | POWAR_MEM_READ |
 		 POWAR_MEM_WRITE | (__ilog2(mem->size) - 1)));
 
 	/* BAR 1: IO */
-	out_be32(&pcix->potar2, (io->bus_start >> 12) & 0x000fffff);
-	out_be32(&pcix->potear2, 0);
-	out_be32(&pcix->powbar2, (io->phys_start >> 12) & 0x000fffff);
-	out_be32(&pcix->powbear2, 0);
+	out_be32(&pcix->potar2, io->bus_start >> 12);
+	out_be32(&pcix->potear2, (u64)io->bus_start >> 44);
+	out_be32(&pcix->powbar2, io->phys_start >> 12);
+	out_be32(&pcix->powbear2, (u64)io->phys_start >> 44);
 	out_be32(&pcix->powar2, (POWAR_EN | POWAR_IO_READ |
 		 POWAR_IO_WRITE | (__ilog2(io->size) - 1)));
 
@@ -122,7 +168,7 @@ static int mpc85xx_pci_dm_remove(struct udevice *dev)
 	return 0;
 }
 
-static int mpc85xx_pci_ofdata_to_platdata(struct udevice *dev)
+static int mpc85xx_pci_of_to_plat(struct udevice *dev)
 {
 	struct mpc85xx_pci_priv *priv = dev_get_priv(dev);
 	fdt_addr_t addr;
@@ -130,9 +176,8 @@ static int mpc85xx_pci_ofdata_to_platdata(struct udevice *dev)
 	addr = devfdt_get_addr_index(dev, 0);
 	if (addr == FDT_ADDR_T_NONE)
 		return -EINVAL;
-	priv->cfg_addr = (void __iomem *)addr;
-	addr += 4;
-	priv->cfg_data = (void __iomem *)addr;
+	priv->cfg_addr = (void __iomem *)map_physmem(addr, 0, MAP_NOCACHE);
+	priv->cfg_data = (void __iomem *)((ulong)priv->cfg_addr + 4);
 
 	return 0;
 }
@@ -154,6 +199,6 @@ U_BOOT_DRIVER(mpc85xx_pci) = {
 	.ops			= &mpc85xx_pci_ops,
 	.probe			= mpc85xx_pci_dm_probe,
 	.remove			= mpc85xx_pci_dm_remove,
-	.ofdata_to_platdata	= mpc85xx_pci_ofdata_to_platdata,
-	.priv_auto_alloc_size	= sizeof(struct mpc85xx_pci_priv),
+	.of_to_plat	= mpc85xx_pci_of_to_plat,
+	.priv_auto	= sizeof(struct mpc85xx_pci_priv),
 };

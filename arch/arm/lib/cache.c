@@ -11,6 +11,7 @@
 #include <log.h>
 #include <malloc.h>
 #include <asm/cache.h>
+#include <asm/global_data.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -86,7 +87,7 @@ void noncached_set_region(void)
 #endif
 }
 
-void noncached_init(void)
+int noncached_init(void)
 {
 	phys_addr_t start, end;
 	size_t size;
@@ -103,6 +104,8 @@ void noncached_init(void)
 	noncached_next = start;
 
 	noncached_set_region();
+
+	return 0;
 }
 
 phys_addr_t noncached_alloc(size_t size, size_t align)
@@ -149,13 +152,22 @@ __weak int arm_reserve_mmu(void)
 	debug("TLB table from %08lx to %08lx\n", gd->arch.tlb_addr,
 	      gd->arch.tlb_addr + gd->arch.tlb_size);
 
-#ifdef CONFIG_SYS_MEM_RESERVE_SECURE
+#ifdef CFG_SYS_MEM_RESERVE_SECURE
 	/*
 	 * Record allocated tlb_addr in case gd->tlb_addr to be overwritten
 	 * with location within secure ram.
 	 */
 	gd->arch.tlb_allocated = gd->arch.tlb_addr;
 #endif
+
+	if (IS_ENABLED(CONFIG_CMO_BY_VA_ONLY)) {
+		/*
+		 * As invalidate_dcache_all() will be called before
+		 * mmu_setup(), we should make sure that the PTs are
+		 * already in a valid state.
+		 */
+		memset((void *)gd->arch.tlb_addr, 0, gd->arch.tlb_size);
+	}
 #endif
 
 	return 0;

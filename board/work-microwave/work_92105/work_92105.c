@@ -8,6 +8,7 @@
 
 #include <common.h>
 #include <init.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
 #include <asm/arch/sys_proto.h>
 #include <asm/arch/cpu.h>
@@ -36,7 +37,7 @@ void reset_periph(void)
 int board_early_init_f(void)
 {
 	/* initialize serial port for console */
-	lpc32xx_uart_init(CONFIG_SYS_LPC32XX_UART);
+	lpc32xx_uart_init(CONFIG_CONS_INDEX);
 	/* enable I2C, SSP, MAC, NAND */
 	lpc32xx_i2c_init(1); /* only I2C1 has devices, I2C2 has none */
 	lpc32xx_ssp_init();
@@ -66,15 +67,15 @@ int board_init(void)
 {
 	reset_periph();
 	/* adress of boot parameters */
-	gd->bd->bi_boot_params  = CONFIG_SYS_SDRAM_BASE + 0x100;
+	gd->bd->bi_boot_params  = CFG_SYS_SDRAM_BASE + 0x100;
 
 	return 0;
 }
 
 int dram_init(void)
 {
-	gd->ram_size = get_ram_size((void *)CONFIG_SYS_SDRAM_BASE,
-				    CONFIG_SYS_SDRAM_SIZE);
+	gd->ram_size = get_ram_size((void *)CFG_SYS_SDRAM_BASE,
+				    CFG_SYS_SDRAM_SIZE);
 
 	return 0;
 }

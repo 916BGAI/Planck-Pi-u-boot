@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * suniv DRAM controller register definition
  *
@@ -6,8 +7,6 @@
  * Based on xboot's arch/arm32/mach-f1c100s/sys-dram.c, which is:
  *
  * Copyright(c) 2007-2018 Jianjun Jiang <8192542@qq.com>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #define PIO_SDRAM_DRV			(0x2c0)

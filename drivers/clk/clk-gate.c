@@ -7,17 +7,22 @@
  * Gated clock implementation
  */
 
+#define LOG_CATEGORY UCLASS_CLK
+
 #include <common.h>
-#include <asm/io.h>
-#include <malloc.h>
+#include <clk.h>
+#include <log.h>
 #include <clk-uclass.h>
+#include <malloc.h>
+#include <asm/io.h>
 #include <dm/device.h>
+#include <dm/device_compat.h>
 #include <dm/devres.h>
 #include <linux/bitops.h>
 #include <linux/clk-provider.h>
-#include <clk.h>
-#include "clk.h"
 #include <linux/err.h>
+
+#include "clk.h"
 
 #define UBOOT_DM_CLK_GATE "clk_gate"
 
@@ -46,8 +51,7 @@
  */
 static void clk_gate_endisable(struct clk *clk, int enable)
 {
-	struct clk_gate *gate = to_clk_gate(clk_dev_binded(clk) ?
-			dev_get_clk_ptr(clk->dev) : clk);
+	struct clk_gate *gate = to_clk_gate(clk);
 	int set = gate->flags & CLK_GATE_SET_TO_DISABLE ? 1 : 0;
 	u32 reg;
 
@@ -58,7 +62,7 @@ static void clk_gate_endisable(struct clk *clk, int enable)
 		if (set)
 			reg |= BIT(gate->bit_idx);
 	} else {
-#if CONFIG_IS_ENABLED(SANDBOX_CLK_CCF)
+#if IS_ENABLED(CONFIG_SANDBOX_CLK_CCF)
 		reg = gate->io_gate_val;
 #else
 		reg = readl(gate->reg);
@@ -89,11 +93,10 @@ static int clk_gate_disable(struct clk *clk)
 
 int clk_gate_is_enabled(struct clk *clk)
 {
-	struct clk_gate *gate = to_clk_gate(clk_dev_binded(clk) ?
-			dev_get_clk_ptr(clk->dev) : clk);
+	struct clk_gate *gate = to_clk_gate(clk);
 	u32 reg;
 
-#if CONFIG_IS_ENABLED(SANDBOX_CLK_CCF)
+#if IS_ENABLED(CONFIG_SANDBOX_CLK_CCF)
 	reg = gate->io_gate_val;
 #else
 	reg = readl(gate->reg);
@@ -125,7 +128,7 @@ struct clk *clk_register_gate(struct device *dev, const char *name,
 
 	if (clk_gate_flags & CLK_GATE_HIWORD_MASK) {
 		if (bit_idx > 15) {
-			pr_err("gate bit exceeds LOWORD field\n");
+			dev_err(dev, "gate bit exceeds LOWORD field\n");
 			return ERR_PTR(-EINVAL);
 		}
 	}
@@ -139,11 +142,12 @@ struct clk *clk_register_gate(struct device *dev, const char *name,
 	gate->reg = reg;
 	gate->bit_idx = bit_idx;
 	gate->flags = clk_gate_flags;
-#if CONFIG_IS_ENABLED(SANDBOX_CLK_CCF)
+#if IS_ENABLED(CONFIG_SANDBOX_CLK_CCF)
 	gate->io_gate_val = *(u32 *)reg;
 #endif
 
 	clk = &gate->clk;
+	clk->flags = flags;
 
 	ret = clk_register(clk, UBOOT_DM_CLK_GATE, name, parent_name);
 	if (ret) {

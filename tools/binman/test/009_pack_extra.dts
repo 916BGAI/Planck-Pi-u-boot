@@ -6,6 +6,7 @@
 
 	binman {
 		u-boot {
+			min-size = <12>;
 			pad-before = <3>;
 			pad-after = <5>;
 		};
@@ -28,8 +29,14 @@
 
 		u-boot-align-both {
 			type = "u-boot";
-			align= <64>;
+			align = <64>;
 			align-end = <128>;
+		};
+
+		u-boot-min-size {
+			type = "u-boot";
+			min-size = <24>;
+			align-size = <16>;
 		};
 	};
 };

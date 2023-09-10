@@ -6,10 +6,11 @@
 
 #include <common.h>
 #include <dm.h>
-#include <dm/test.h>
-#include <misc.h>
-#include <test/ut.h>
 #include <miiphy.h>
+#include <misc.h>
+#include <dm/test.h>
+#include <test/test.h>
+#include <test/ut.h>
 
 /* macros copied over from mdio_sandbox.c */
 #define SANDBOX_PHY_ADDR	5
@@ -56,25 +57,25 @@ static int dm_test_mdio_mux(struct unit_test_state *uts)
 	 * is selected to the selection #.  Just reading that register from
 	 * either of the child buses should return the id of the child bus
 	 */
-	reg = ops->read(mdio_ch0, SANDBOX_PHY_ADDR, MDIO_DEVAD_NONE,
-			SANDBOX_PHY_REG_CNT - 1);
+	reg = dm_mdio_read(mdio_ch0, SANDBOX_PHY_ADDR, MDIO_DEVAD_NONE,
+			   SANDBOX_PHY_REG_CNT - 1);
 	ut_asserteq(reg, 0);
 
-	reg = ops->read(mdio_ch1, SANDBOX_PHY_ADDR, MDIO_DEVAD_NONE,
-			SANDBOX_PHY_REG_CNT - 1);
+	reg = dm_mdio_read(mdio_ch1, SANDBOX_PHY_ADDR, MDIO_DEVAD_NONE,
+			   SANDBOX_PHY_REG_CNT - 1);
 	ut_asserteq(reg, 1);
 
 	mmops->select(mux, MDIO_MUX_SELECT_NONE, 5);
-	reg = ops_parent->read(mdio, SANDBOX_PHY_ADDR, MDIO_DEVAD_NONE,
-			SANDBOX_PHY_REG_CNT - 1);
+	reg = dm_mdio_read(mdio, SANDBOX_PHY_ADDR, MDIO_DEVAD_NONE,
+			   SANDBOX_PHY_REG_CNT - 1);
 	ut_asserteq(reg, 5);
 
 	mmops->deselect(mux, 5);
-	reg = ops_parent->read(mdio, SANDBOX_PHY_ADDR, MDIO_DEVAD_NONE,
-			SANDBOX_PHY_REG_CNT - 1);
+	reg = dm_mdio_read(mdio, SANDBOX_PHY_ADDR, MDIO_DEVAD_NONE,
+			   SANDBOX_PHY_REG_CNT - 1);
 	ut_asserteq(reg, (u16)MDIO_MUX_SELECT_NONE);
 
 	return 0;
 }
 
-DM_TEST(dm_test_mdio_mux, DM_TESTF_SCAN_FDT);
+DM_TEST(dm_test_mdio_mux, UT_TESTF_SCAN_FDT);

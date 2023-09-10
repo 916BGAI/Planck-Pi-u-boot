@@ -21,7 +21,7 @@ static int rk3308_dmc_probe(struct udevice *dev)
 	struct dram_info *priv = dev_get_priv(dev);
 
 	priv->grf = syscon_get_first_range(ROCKCHIP_SYSCON_GRF);
-	priv->info.base = CONFIG_SYS_SDRAM_BASE;
+	priv->info.base = CFG_SYS_SDRAM_BASE;
 	priv->info.size = rockchip_sdram_size((phys_addr_t)&priv->grf->os_reg2);
 
 	return 0;
@@ -51,5 +51,5 @@ U_BOOT_DRIVER(dmc_rk3308) = {
 	.of_match = rk3308_dmc_ids,
 	.ops = &rk3308_dmc_ops,
 	.probe = rk3308_dmc_probe,
-	.priv_auto_alloc_size = sizeof(struct dram_info),
+	.priv_auto	= sizeof(struct dram_info),
 };

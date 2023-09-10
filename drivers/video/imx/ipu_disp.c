@@ -822,7 +822,7 @@ static int ipu_pixfmt_to_map(uint32_t fmt)
  *
  * @param       sig             Bitfield of signal polarities for LCD interface.
  *
- * @return      This function returns 0 on success or negative error code on
+ * Return:      This function returns 0 on success or negative error code on
  *              fail.
  */
 
@@ -1171,7 +1171,7 @@ int32_t ipu_init_sync_panel(int disp, uint32_t pixel_clk,
  *
  * @param       alpha           Global alpha value.
  *
- * @return      Returns 0 on success or negative error code on fail
+ * Return:      Returns 0 on success or negative error code on fail
  */
 int32_t ipu_disp_set_global_alpha(ipu_channel_t channel, unsigned char enable,
 				  uint8_t alpha)
@@ -1190,9 +1190,6 @@ int32_t ipu_disp_set_global_alpha(ipu_channel_t channel, unsigned char enable,
 		bg_chan = 1;
 	else
 		bg_chan = 0;
-
-	if (!g_ipu_clk_enabled)
-		clk_enable(g_ipu_clk);
 
 	if (bg_chan) {
 		reg = __raw_readl(DP_COM_CONF());
@@ -1217,9 +1214,6 @@ int32_t ipu_disp_set_global_alpha(ipu_channel_t channel, unsigned char enable,
 	reg = __raw_readl(IPU_SRM_PRI2) | 0x8;
 	__raw_writel(reg, IPU_SRM_PRI2);
 
-	if (!g_ipu_clk_enabled)
-		clk_disable(g_ipu_clk);
-
 	return 0;
 }
 
@@ -1232,7 +1226,7 @@ int32_t ipu_disp_set_global_alpha(ipu_channel_t channel, unsigned char enable,
  *
  * @param       colorKey        24-bit RGB color for transparent color key.
  *
- * @return      Returns 0 on success or negative error code on fail
+ * Return:      Returns 0 on success or negative error code on fail
  */
 int32_t ipu_disp_set_color_key(ipu_channel_t channel, unsigned char enable,
 			       uint32_t color_key)
@@ -1245,9 +1239,6 @@ int32_t ipu_disp_set_color_key(ipu_channel_t channel, unsigned char enable,
 		(channel == MEM_BG_ASYNC0 || channel == MEM_FG_ASYNC0) ||
 		(channel == MEM_BG_ASYNC1 || channel == MEM_FG_ASYNC1)))
 		return -EINVAL;
-
-	if (!g_ipu_clk_enabled)
-		clk_enable(g_ipu_clk);
 
 	color_key_4rgb = 1;
 	/* Transform color key from rgb to yuv if CSC is enabled */
@@ -1285,9 +1276,6 @@ int32_t ipu_disp_set_color_key(ipu_channel_t channel, unsigned char enable,
 
 	reg = __raw_readl(IPU_SRM_PRI2) | 0x8;
 	__raw_writel(reg, IPU_SRM_PRI2);
-
-	if (!g_ipu_clk_enabled)
-		clk_disable(g_ipu_clk);
 
 	return 0;
 }

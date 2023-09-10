@@ -6,6 +6,7 @@
 #include <common.h>
 #include <image.h>
 #include <init.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
 #include <led.h>
 #include <miiphy.h>
@@ -21,11 +22,7 @@ int board_early_init_r(void)
 	writel(0, BASE_CFG + ICPU_SW_MODE);
 
 	/* Address of boot parameters */
-	gd->bd->bi_boot_params = CONFIG_SYS_SDRAM_BASE;
-
-	/* LED setup */
-	if (IS_ENABLED(CONFIG_LED))
-		led_default_state();
+	gd->bd->bi_boot_params = CFG_SYS_SDRAM_BASE;
 
 	return 0;
 }

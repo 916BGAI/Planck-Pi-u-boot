@@ -12,31 +12,86 @@
  */
 
 #include <common.h>
-#include <clk.h>
 #include <dm.h>
 #include <dm/device_compat.h>
+#include <generic-phy.h>
 #include <pci.h>
-#include <power-domain.h>
 #include <power/regulator.h>
 #include <reset.h>
-#include <syscon.h>
-#include <asm/io.h>
 #include <asm-generic/gpio.h>
-#include <asm/arch-rockchip/clock.h>
 #include <linux/iopoll.h>
 
-#include "pcie_rockchip.h"
+#define HIWORD_UPDATE(mask, val)        (((mask) << 16) | (val))
+#define HIWORD_UPDATE_BIT(val)          HIWORD_UPDATE(val, val)
 
-DECLARE_GLOBAL_DATA_PTR;
+#define ENCODE_LANES(x)                 ((((x) >> 1) & 3) << 4)
+#define PCIE_CLIENT_BASE                0x0
+#define PCIE_CLIENT_CONFIG              (PCIE_CLIENT_BASE + 0x00)
+#define PCIE_CLIENT_CONF_ENABLE         HIWORD_UPDATE_BIT(0x0001)
+#define PCIE_CLIENT_LINK_TRAIN_ENABLE   HIWORD_UPDATE_BIT(0x0002)
+#define PCIE_CLIENT_MODE_RC             HIWORD_UPDATE_BIT(0x0040)
+#define PCIE_CLIENT_GEN_SEL_1           HIWORD_UPDATE(0x0080, 0)
+#define PCIE_CLIENT_BASIC_STATUS1	0x0048
+#define PCIE_CLIENT_LINK_STATUS_UP	GENMASK(21, 20)
+#define PCIE_CLIENT_LINK_STATUS_MASK	GENMASK(21, 20)
+#define PCIE_LINK_UP(x) \
+	(((x) & PCIE_CLIENT_LINK_STATUS_MASK) == PCIE_CLIENT_LINK_STATUS_UP)
+#define PCIE_RC_NORMAL_BASE		0x800000
+#define PCIE_LM_BASE			0x900000
+#define PCIE_LM_VENDOR_ID              (PCIE_LM_BASE + 0x44)
+#define PCIE_LM_VENDOR_ROCKCHIP		0x1d87
+#define PCIE_LM_RCBAR			(PCIE_LM_BASE + 0x300)
+#define PCIE_LM_RCBARPIE		BIT(19)
+#define PCIE_LM_RCBARPIS		BIT(20)
+#define PCIE_RC_BASE			0xa00000
+#define PCIE_RC_CONFIG_DCR		(PCIE_RC_BASE + 0x0c4)
+#define PCIE_RC_CONFIG_DCR_CSPL_SHIFT	18
+#define PCIE_RC_CONFIG_DCR_CPLS_SHIFT	26
+#define PCIE_RC_PCIE_LCAP		(PCIE_RC_BASE + 0x0cc)
+#define PCIE_RC_PCIE_LCAP_APMS_L0S	BIT(10)
+#define PCIE_ATR_BASE			0xc00000
+#define PCIE_ATR_OB_ADDR0(i)		(PCIE_ATR_BASE + 0x000 + (i) * 0x20)
+#define PCIE_ATR_OB_ADDR1(i)		(PCIE_ATR_BASE + 0x004 + (i) * 0x20)
+#define PCIE_ATR_OB_DESC0(i)		(PCIE_ATR_BASE + 0x008 + (i) * 0x20)
+#define PCIE_ATR_OB_DESC1(i)		(PCIE_ATR_BASE + 0x00c + (i) * 0x20)
+#define PCIE_ATR_IB_ADDR0(i)		(PCIE_ATR_BASE + 0x800 + (i) * 0x8)
+#define PCIE_ATR_IB_ADDR1(i)		(PCIE_ATR_BASE + 0x804 + (i) * 0x8)
+#define PCIE_ATR_HDR_MEM		0x2
+#define PCIE_ATR_HDR_IO			0x6
+#define PCIE_ATR_HDR_CFG_TYPE0		0xa
+#define PCIE_ATR_HDR_CFG_TYPE1		0xb
+#define PCIE_ATR_HDR_RID		BIT(23)
 
-static int rockchip_pcie_off_conf(pci_dev_t bdf, uint offset)
-{
-	unsigned int bus = PCI_BUS(bdf);
-	unsigned int dev = PCI_DEV(bdf);
-	unsigned int func = PCI_FUNC(bdf);
+#define PCIE_ATR_OB_REGION0_SIZE	(32 * 1024 * 1024)
+#define PCIE_ATR_OB_REGION_SIZE		(1 * 1024 * 1024)
 
-	return (bus << 20) | (dev << 15) | (func << 12) | (offset & ~0x3);
-}
+struct rockchip_pcie {
+	fdt_addr_t axi_base;
+	fdt_addr_t apb_base;
+	int first_busno;
+	struct udevice *dev;
+
+	/* resets */
+	struct reset_ctl core_rst;
+	struct reset_ctl mgmt_rst;
+	struct reset_ctl mgmt_sticky_rst;
+	struct reset_ctl pipe_rst;
+	struct reset_ctl pm_rst;
+	struct reset_ctl pclk_rst;
+	struct reset_ctl aclk_rst;
+
+	/* gpio */
+	struct gpio_desc ep_gpio;
+
+	/* vpcie regulators */
+	struct udevice *vpcie12v;
+	struct udevice *vpcie3v3;
+	struct udevice *vpcie1v8;
+	struct udevice *vpcie0v9;
+
+	/* phy */
+	struct phy pcie_phy;
+};
 
 static int rockchip_pcie_rd_conf(const struct udevice *udev, pci_dev_t bdf,
 				 uint offset, ulong *valuep,
@@ -45,7 +100,7 @@ static int rockchip_pcie_rd_conf(const struct udevice *udev, pci_dev_t bdf,
 	struct rockchip_pcie *priv = dev_get_priv(udev);
 	unsigned int bus = PCI_BUS(bdf);
 	unsigned int dev = PCI_DEV(bdf);
-	int where = rockchip_pcie_off_conf(bdf, offset);
+	int where = PCIE_ECAM_OFFSET(PCI_BUS(bdf), PCI_DEV(bdf), PCI_FUNC(bdf), offset & ~0x3);
 	ulong value;
 
 	if (bus == priv->first_busno && dev == 0) {
@@ -72,7 +127,7 @@ static int rockchip_pcie_wr_conf(struct udevice *udev, pci_dev_t bdf,
 	struct rockchip_pcie *priv = dev_get_priv(udev);
 	unsigned int bus = PCI_BUS(bdf);
 	unsigned int dev = PCI_DEV(bdf);
-	int where = rockchip_pcie_off_conf(bdf, offset);
+	int where = PCIE_ECAM_OFFSET(PCI_BUS(bdf), PCI_DEV(bdf), PCI_FUNC(bdf), offset & ~0x3);
 	ulong old;
 
 	if (bus == priv->first_busno && dev == 0) {
@@ -159,8 +214,6 @@ static int rockchip_pcie_atr_init(struct rockchip_pcie *priv)
 static int rockchip_pcie_init_port(struct udevice *dev)
 {
 	struct rockchip_pcie *priv = dev_get_priv(dev);
-	struct rockchip_pcie_phy *phy = pcie_get_phy(priv);
-	struct rockchip_pcie_phy_ops *ops = phy_get_ops(phy);
 	u32 cr, val, status;
 	int ret;
 
@@ -185,7 +238,7 @@ static int rockchip_pcie_init_port(struct udevice *dev)
 		return ret;
 	}
 
-	ret = ops->init(phy);
+	ret = generic_phy_init(&priv->pcie_phy);
 	if (ret) {
 		dev_err(dev, "failed to init phy (ret=%d)\n", ret);
 		goto err_exit_phy;
@@ -242,7 +295,7 @@ static int rockchip_pcie_init_port(struct udevice *dev)
 	cr |= PCIE_CLIENT_CONF_ENABLE | PCIE_CLIENT_MODE_RC;
 	writel(cr, priv->apb_base + PCIE_CLIENT_CONFIG);
 
-	ret = ops->power_on(phy);
+	ret = generic_phy_power_on(&priv->pcie_phy);
 	if (ret) {
 		dev_err(dev, "failed to power on phy (ret=%d)\n", ret);
 		goto err_power_off_phy;
@@ -290,7 +343,7 @@ static int rockchip_pcie_init_port(struct udevice *dev)
 
 	/* Initialize Root Complex registers. */
 	writel(PCIE_LM_VENDOR_ROCKCHIP, priv->apb_base + PCIE_LM_VENDOR_ID);
-	writel(PCI_CLASS_BRIDGE_PCI << 16,
+	writel(PCI_CLASS_BRIDGE_PCI_NORMAL << 8,
 	       priv->apb_base + PCIE_RC_BASE + PCI_CLASS_REVISION);
 	writel(PCIE_LM_RCBARPIE | PCIE_LM_RCBARPIS,
 	       priv->apb_base + PCIE_LM_RCBAR);
@@ -304,16 +357,16 @@ static int rockchip_pcie_init_port(struct udevice *dev)
 	/* Configure Address Translation. */
 	ret = rockchip_pcie_atr_init(priv);
 	if (ret) {
-		dev_err(dev, "PCIE-%d: ATR init failed\n", dev->seq);
+		dev_err(dev, "PCIE-%d: ATR init failed\n", dev_seq(dev));
 		goto err_power_off_phy;
 	}
 
 	return 0;
 
 err_power_off_phy:
-	ops->power_off(phy);
+	generic_phy_power_off(&priv->pcie_phy);
 err_exit_phy:
-	ops->exit(phy);
+	generic_phy_exit(&priv->pcie_phy);
 	return ret;
 }
 
@@ -322,41 +375,38 @@ static int rockchip_pcie_set_vpcie(struct udevice *dev)
 	struct rockchip_pcie *priv = dev_get_priv(dev);
 	int ret;
 
-	if (priv->vpcie3v3) {
-		ret = regulator_set_enable(priv->vpcie3v3, true);
-		if (ret) {
-			dev_err(dev, "failed to enable vpcie3v3 (ret=%d)\n",
-				ret);
-			return ret;
-		}
+	ret = regulator_set_enable_if_allowed(priv->vpcie12v, true);
+	if (ret && ret != -ENOSYS) {
+		dev_err(dev, "failed to enable vpcie12v (ret=%d)\n", ret);
+		return ret;
 	}
 
-	if (priv->vpcie1v8) {
-		ret = regulator_set_enable(priv->vpcie1v8, true);
-		if (ret) {
-			dev_err(dev, "failed to enable vpcie1v8 (ret=%d)\n",
-				ret);
-			goto err_disable_3v3;
-		}
+	ret = regulator_set_enable_if_allowed(priv->vpcie3v3, true);
+	if (ret && ret != -ENOSYS) {
+		dev_err(dev, "failed to enable vpcie3v3 (ret=%d)\n", ret);
+		goto err_disable_12v;
 	}
 
-	if (priv->vpcie0v9) {
-		ret = regulator_set_enable(priv->vpcie0v9, true);
-		if (ret) {
-			dev_err(dev, "failed to enable vpcie0v9 (ret=%d)\n",
-				ret);
-			goto err_disable_1v8;
-		}
+	ret = regulator_set_enable_if_allowed(priv->vpcie1v8, true);
+	if (ret && ret != -ENOSYS) {
+		dev_err(dev, "failed to enable vpcie1v8 (ret=%d)\n", ret);
+		goto err_disable_3v3;
+	}
+
+	ret = regulator_set_enable_if_allowed(priv->vpcie0v9, true);
+	if (ret && ret != -ENOSYS) {
+		dev_err(dev, "failed to enable vpcie0v9 (ret=%d)\n", ret);
+		goto err_disable_1v8;
 	}
 
 	return 0;
 
 err_disable_1v8:
-	if (priv->vpcie1v8)
-		regulator_set_enable(priv->vpcie1v8, false);
+	regulator_set_enable_if_allowed(priv->vpcie1v8, false);
 err_disable_3v3:
-	if (priv->vpcie3v3)
-		regulator_set_enable(priv->vpcie3v3, false);
+	regulator_set_enable_if_allowed(priv->vpcie3v3, false);
+err_disable_12v:
+	regulator_set_enable_if_allowed(priv->vpcie12v, false);
 	return ret;
 }
 
@@ -366,19 +416,12 @@ static int rockchip_pcie_parse_dt(struct udevice *dev)
 	int ret;
 
 	priv->axi_base = dev_read_addr_name(dev, "axi-base");
-	if (!priv->axi_base)
-		return -ENODEV;
+	if (priv->axi_base == FDT_ADDR_T_NONE)
+		return -EINVAL;
 
 	priv->apb_base = dev_read_addr_name(dev, "apb-base");
-	if (!priv->axi_base)
-		return -ENODEV;
-
-	ret = gpio_request_by_name(dev, "ep-gpios", 0,
-				   &priv->ep_gpio, GPIOD_IS_OUT);
-	if (ret) {
-		dev_err(dev, "failed to find ep-gpios property\n");
-		return ret;
-	}
+	if (priv->apb_base == FDT_ADDR_T_NONE)
+		return -EINVAL;
 
 	ret = reset_get_by_name(dev, "core", &priv->core_rst);
 	if (ret) {
@@ -422,6 +465,13 @@ static int rockchip_pcie_parse_dt(struct udevice *dev)
 		return ret;
 	}
 
+	ret = device_get_supply_regulator(dev, "vpcie12v-supply",
+					  &priv->vpcie12v);
+	if (ret && ret != -ENOENT) {
+		dev_err(dev, "failed to get vpcie12v supply (ret=%d)\n", ret);
+		return ret;
+	}
+
 	ret = device_get_supply_regulator(dev, "vpcie3v3-supply",
 					  &priv->vpcie3v3);
 	if (ret && ret != -ENOENT) {
@@ -443,6 +493,19 @@ static int rockchip_pcie_parse_dt(struct udevice *dev)
 		return ret;
 	}
 
+	ret = generic_phy_get_by_index(dev, 0, &priv->pcie_phy);
+	if (ret) {
+		dev_err(dev, "failed to get pcie-phy (ret=%d)\n", ret);
+		return ret;
+	}
+
+	ret = gpio_request_by_name(dev, "ep-gpios", 0,
+				   &priv->ep_gpio, GPIOD_IS_OUT);
+	if (ret) {
+		dev_err(dev, "failed to find ep-gpios property\n");
+		return ret;
+	}
+
 	return 0;
 }
 
@@ -453,29 +516,35 @@ static int rockchip_pcie_probe(struct udevice *dev)
 	struct pci_controller *hose = dev_get_uclass_priv(ctlr);
 	int ret;
 
-	priv->first_busno = dev->seq;
+	priv->first_busno = dev_seq(dev);
 	priv->dev = dev;
 
 	ret = rockchip_pcie_parse_dt(dev);
 	if (ret)
 		return ret;
 
-	ret = rockchip_pcie_phy_get(dev);
-	if (ret)
-		return ret;
-
 	ret = rockchip_pcie_set_vpcie(dev);
 	if (ret)
-		return ret;
+		goto err_gpio_free;
 
 	ret = rockchip_pcie_init_port(dev);
 	if (ret)
-		return ret;
+		goto err_disable_vpcie;
 
 	dev_info(dev, "PCIE-%d: Link up (Bus%d)\n",
-		 dev->seq, hose->first_busno);
+		 dev_seq(dev), hose->first_busno);
 
 	return 0;
+
+err_disable_vpcie:
+	regulator_set_enable_if_allowed(priv->vpcie0v9, false);
+	regulator_set_enable_if_allowed(priv->vpcie1v8, false);
+	regulator_set_enable_if_allowed(priv->vpcie3v3, false);
+	regulator_set_enable_if_allowed(priv->vpcie12v, false);
+err_gpio_free:
+	if (dm_gpio_is_valid(&priv->ep_gpio))
+		dm_gpio_free(dev, &priv->ep_gpio);
+	return ret;
 }
 
 static const struct dm_pci_ops rockchip_pcie_ops = {
@@ -489,10 +558,10 @@ static const struct udevice_id rockchip_pcie_ids[] = {
 };
 
 U_BOOT_DRIVER(rockchip_pcie) = {
-	.name			= "rockchip_pcie",
-	.id			= UCLASS_PCI,
-	.of_match		= rockchip_pcie_ids,
-	.ops			= &rockchip_pcie_ops,
-	.probe			= rockchip_pcie_probe,
-	.priv_auto_alloc_size	= sizeof(struct rockchip_pcie),
+	.name		= "rockchip_pcie",
+	.id		= UCLASS_PCI,
+	.of_match	= rockchip_pcie_ids,
+	.ops		= &rockchip_pcie_ops,
+	.probe		= rockchip_pcie_probe,
+	.priv_auto	= sizeof(struct rockchip_pcie),
 };

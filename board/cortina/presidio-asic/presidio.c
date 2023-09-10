@@ -8,6 +8,7 @@
 #include <malloc.h>
 #include <errno.h>
 #include <netdev.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
 #include <linux/bitops.h>
 #include <linux/compiler.h>
@@ -83,7 +84,7 @@ int board_init(void)
 	unsigned int reg_data, jtag_id;
 
 	/* Enable timer */
-	writel(1, CONFIG_SYS_TIMER_BASE);
+	writel(1, CFG_SYS_TIMER_BASE);
 
 	/* Enable snoop in CCI400 slave port#4 */
 	writel(3, 0xF5595000);
@@ -114,7 +115,7 @@ int dram_init(void)
 	return 0;
 }
 
-void reset_cpu(ulong addr)
+void reset_cpu(void)
 {
 	invoke_psci_fn_smc(PSCI_0_2_FN_SYSTEM_RESET, 0, 0, 0);
 }

@@ -4,13 +4,8 @@
 # Wolfgang Denk, DENX Software Engineering, wd@denx.de.
 
 extra-y        := hello_world
-extra-$(CONFIG_SMC91111)           += smc91111_eeprom
 extra-$(CONFIG_SPI_FLASH_ATMEL)    += atmel_df_pow2
 extra-$(CONFIG_PPC)                += sched
-
-ifndef CONFIG_DM_ETH
-extra-$(CONFIG_SMC911X)            += smc911x_eeprom
-endif
 
 #
 # Some versions of make do not handle trailing white spaces properly;
@@ -33,6 +28,10 @@ targets += $(patsubst $(obj)/%,%,$(LIB)) $(COBJS) $(LIBOBJS-y)
 
 LIBOBJS	:= $(addprefix $(obj)/,$(LIBOBJS-y))
 ELF	:= $(addprefix $(obj)/,$(ELF))
+
+# Disable LTO for these builds
+CFLAGS_REMOVE_hello_world.o := $(LTO_CFLAGS)
+CFLAGS_REMOVE_stubs.o := $(LTO_CFLAGS)
 
 # For PowerPC there's no need to compile standalone applications as a
 # relocatable executable.  The relocation data is not needed, and

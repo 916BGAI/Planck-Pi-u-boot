@@ -5,13 +5,17 @@
  *  Copyright (c) 2016-2018 Alexander Graf et al.
  */
 
+#define LOG_CATEGORY LOGC_EFI
+
 #include <common.h>
-#include <bootm.h>
 #include <efi_loader.h>
+#include <efi_variable.h>
+#include <log.h>
+#include <asm-generic/unaligned.h>
 
 #define OBJ_LIST_NOT_INITIALIZED 1
 
-static efi_status_t efi_obj_list_initialized = OBJ_LIST_NOT_INITIALIZED;
+efi_status_t efi_obj_list_initialized = OBJ_LIST_NOT_INITIALIZED;
 
 /*
  * Allow unaligned memory access.
@@ -40,12 +44,13 @@ static efi_status_t efi_init_platform_lang(void)
 	 * Variable PlatformLangCodes defines the language codes that the
 	 * machine can support.
 	 */
-	ret = EFI_CALL(efi_set_variable(L"PlatformLangCodes",
-					&efi_global_variable_guid,
-					EFI_VARIABLE_BOOTSERVICE_ACCESS |
-					EFI_VARIABLE_RUNTIME_ACCESS,
-					sizeof(CONFIG_EFI_PLATFORM_LANG_CODES),
-					CONFIG_EFI_PLATFORM_LANG_CODES));
+	ret = efi_set_variable_int(u"PlatformLangCodes",
+				   &efi_global_variable_guid,
+				   EFI_VARIABLE_BOOTSERVICE_ACCESS |
+				   EFI_VARIABLE_RUNTIME_ACCESS |
+				   EFI_VARIABLE_READ_ONLY,
+				   sizeof(CONFIG_EFI_PLATFORM_LANG_CODES),
+				   CONFIG_EFI_PLATFORM_LANG_CODES, false);
 	if (ret != EFI_SUCCESS)
 		goto out;
 
@@ -53,9 +58,9 @@ static efi_status_t efi_init_platform_lang(void)
 	 * Variable PlatformLang defines the language that the machine has been
 	 * configured for.
 	 */
-	ret = EFI_CALL(efi_get_variable(L"PlatformLang",
-					&efi_global_variable_guid,
-					NULL, &data_size, &pos));
+	ret = efi_get_variable_int(u"PlatformLang",
+				   &efi_global_variable_guid,
+				   NULL, &data_size, &pos, NULL);
 	if (ret == EFI_BUFFER_TOO_SMALL) {
 		/* The variable is already set. Do not change it. */
 		ret = EFI_SUCCESS;
@@ -70,12 +75,12 @@ static efi_status_t efi_init_platform_lang(void)
 	if (pos)
 		*pos = 0;
 
-	ret = EFI_CALL(efi_set_variable(L"PlatformLang",
-					&efi_global_variable_guid,
-					EFI_VARIABLE_NON_VOLATILE |
-					EFI_VARIABLE_BOOTSERVICE_ACCESS |
-					EFI_VARIABLE_RUNTIME_ACCESS,
-					1 + strlen(lang), lang));
+	ret = efi_set_variable_int(u"PlatformLang",
+				   &efi_global_variable_guid,
+				   EFI_VARIABLE_NON_VOLATILE |
+				   EFI_VARIABLE_BOOTSERVICE_ACCESS |
+				   EFI_VARIABLE_RUNTIME_ACCESS,
+				   1 + strlen(lang), lang, false);
 out:
 	if (ret != EFI_SUCCESS)
 		printf("EFI: cannot initialize platform language settings\n");
@@ -96,13 +101,13 @@ static efi_status_t efi_init_secure_boot(void)
 	};
 	efi_status_t ret;
 
-	/* TODO: read-only */
-	ret = EFI_CALL(efi_set_variable(L"SignatureSupport",
-					&efi_global_variable_guid,
-					EFI_VARIABLE_BOOTSERVICE_ACCESS
-					 | EFI_VARIABLE_RUNTIME_ACCESS,
-					sizeof(signature_types),
-					&signature_types));
+	ret = efi_set_variable_int(u"SignatureSupport",
+				   &efi_global_variable_guid,
+				   EFI_VARIABLE_READ_ONLY |
+				   EFI_VARIABLE_BOOTSERVICE_ACCESS |
+				   EFI_VARIABLE_RUNTIME_ACCESS,
+				   sizeof(signature_types),
+				   &signature_types, false);
 	if (ret != EFI_SUCCESS)
 		printf("EFI: cannot initialize SignatureSupport variable\n");
 
@@ -116,35 +121,125 @@ static efi_status_t efi_init_secure_boot(void)
 #endif /* CONFIG_EFI_SECURE_BOOT */
 
 /**
- * efi_init_obj_list() - Initialize and populate EFI object list
+ * efi_init_capsule - initialize capsule update state
  *
  * Return:	status code
  */
-efi_status_t efi_init_obj_list(void)
+static efi_status_t efi_init_capsule(void)
 {
-	u64 os_indications_supported = 0; /* None */
 	efi_status_t ret = EFI_SUCCESS;
 
-	/* Initialize once only */
-	if (efi_obj_list_initialized != OBJ_LIST_NOT_INITIALIZED)
-		return efi_obj_list_initialized;
+	if (IS_ENABLED(CONFIG_EFI_HAVE_CAPSULE_SUPPORT)) {
+		u16 var_name16[12];
+
+		efi_create_indexed_name(var_name16, sizeof(var_name16),
+					"Capsule", CONFIG_EFI_CAPSULE_MAX);
+
+		ret = efi_set_variable_int(u"CapsuleMax",
+					   &efi_guid_capsule_report,
+					   EFI_VARIABLE_READ_ONLY |
+					   EFI_VARIABLE_BOOTSERVICE_ACCESS |
+					   EFI_VARIABLE_RUNTIME_ACCESS,
+					   22, var_name16, false);
+		if (ret != EFI_SUCCESS)
+			printf("EFI: cannot initialize CapsuleMax variable\n");
+	}
+
+	return ret;
+}
+
+/**
+ * efi_init_os_indications() - indicate supported features for OS requests
+ *
+ * Set the OsIndicationsSupported variable.
+ *
+ * Return:	status code
+ */
+static efi_status_t efi_init_os_indications(void)
+{
+	u64 os_indications_supported = 0;
+
+	if (IS_ENABLED(CONFIG_EFI_HAVE_CAPSULE_SUPPORT))
+		os_indications_supported |=
+			EFI_OS_INDICATIONS_CAPSULE_RESULT_VAR_SUPPORTED;
+
+	if (IS_ENABLED(CONFIG_EFI_CAPSULE_ON_DISK))
+		os_indications_supported |=
+			EFI_OS_INDICATIONS_FILE_CAPSULE_DELIVERY_SUPPORTED;
+
+	if (IS_ENABLED(CONFIG_EFI_CAPSULE_FIRMWARE_MANAGEMENT))
+		os_indications_supported |=
+			EFI_OS_INDICATIONS_FMP_CAPSULE_SUPPORTED;
+
+	return efi_set_variable_int(u"OsIndicationsSupported",
+				    &efi_global_variable_guid,
+				    EFI_VARIABLE_BOOTSERVICE_ACCESS |
+				    EFI_VARIABLE_RUNTIME_ACCESS |
+				    EFI_VARIABLE_READ_ONLY,
+				    sizeof(os_indications_supported),
+				    &os_indications_supported, false);
+}
+
+/**
+ * efi_init_early() - handle initialization at early stage
+ *
+ * expected to be called in board_init_r().
+ *
+ * Return:	status code
+ */
+int efi_init_early(void)
+{
+	efi_status_t ret;
 
 	/* Allow unaligned memory access */
 	allow_unaligned();
-
-	/* On ARM switch from EL3 or secure mode to EL2 or non-secure mode */
-	switch_to_non_secure_mode();
 
 	/* Initialize root node */
 	ret = efi_root_node_register();
 	if (ret != EFI_SUCCESS)
 		goto out;
 
-#ifdef CONFIG_PARTITIONS
-	ret = efi_disk_register();
+	ret = efi_console_register();
 	if (ret != EFI_SUCCESS)
 		goto out;
-#endif
+
+	/* Initialize EFI driver uclass */
+	ret = efi_driver_init();
+	if (ret != EFI_SUCCESS)
+		goto out;
+
+	return 0;
+out:
+	/* never re-init UEFI subsystem */
+	efi_obj_list_initialized = ret;
+
+	return -1;
+}
+
+/**
+ * efi_init_obj_list() - Initialize and populate EFI object list
+ *
+ * Return:	status code
+ */
+efi_status_t efi_init_obj_list(void)
+{
+	efi_status_t ret = EFI_SUCCESS;
+
+	/* Initialize once only */
+	if (efi_obj_list_initialized != OBJ_LIST_NOT_INITIALIZED)
+		return efi_obj_list_initialized;
+
+	/* Set up console modes */
+	efi_setup_console_size();
+
+	/*
+	 * Probe block devices to find the ESP.
+	 * efi_disks_register() must be called before efi_init_variables().
+	 */
+	ret = efi_disks_register();
+	if (ret != EFI_SUCCESS)
+		goto out;
+
 	/* Initialize variable services */
 	ret = efi_init_variables();
 	if (ret != EFI_SUCCESS)
@@ -156,12 +251,7 @@ efi_status_t efi_init_obj_list(void)
 		goto out;
 
 	/* Indicate supported features */
-	ret = EFI_CALL(efi_set_variable(L"OsIndicationsSupported",
-					&efi_global_variable_guid,
-					EFI_VARIABLE_BOOTSERVICE_ACCESS |
-					EFI_VARIABLE_RUNTIME_ACCESS,
-					sizeof(os_indications_supported),
-					&os_indications_supported));
+	ret = efi_init_os_indications();
 	if (ret != EFI_SUCCESS)
 		goto out;
 
@@ -169,6 +259,41 @@ efi_status_t efi_init_obj_list(void)
 	ret = efi_initialize_system_table();
 	if (ret != EFI_SUCCESS)
 		goto out;
+
+	if (IS_ENABLED(CONFIG_EFI_ECPT)) {
+		ret = efi_ecpt_register();
+		if (ret != EFI_SUCCESS)
+			goto out;
+	}
+
+	if (IS_ENABLED(CONFIG_EFI_ESRT)) {
+		ret = efi_esrt_register();
+		if (ret != EFI_SUCCESS)
+			goto out;
+	}
+
+	if (IS_ENABLED(CONFIG_EFI_TCG2_PROTOCOL)) {
+		ret = efi_tcg2_register();
+		if (ret != EFI_SUCCESS)
+			goto out;
+
+		ret = efi_tcg2_do_initial_measurement();
+		if (ret == EFI_SECURITY_VIOLATION)
+			goto out;
+	}
+
+	/* Install EFI_RNG_PROTOCOL */
+	if (IS_ENABLED(CONFIG_EFI_RNG_PROTOCOL)) {
+		ret = efi_rng_register();
+		if (ret != EFI_SUCCESS)
+			goto out;
+	}
+
+	if (IS_ENABLED(CONFIG_EFI_RISCV_BOOT_PROTOCOL)) {
+		ret = efi_riscv_register();
+		if (ret != EFI_SUCCESS)
+			goto out;
+	}
 
 	/* Secure boot */
 	ret = efi_init_secure_boot();
@@ -180,25 +305,18 @@ efi_status_t efi_init_obj_list(void)
 	if (ret != EFI_SUCCESS)
 		goto out;
 
-	/* Initialize EFI driver uclass */
-	ret = efi_driver_init();
-	if (ret != EFI_SUCCESS)
-		goto out;
+	if (IS_ENABLED(CONFIG_EFI_HAVE_CAPSULE_SUPPORT)) {
+		ret = efi_load_capsule_drivers();
+		if (ret != EFI_SUCCESS)
+			goto out;
+	}
 
-	ret = efi_console_register();
-	if (ret != EFI_SUCCESS)
-		goto out;
-#if defined(CONFIG_LCD) || defined(CONFIG_DM_VIDEO)
-	ret = efi_gop_register();
-	if (ret != EFI_SUCCESS)
-		goto out;
-#endif
-#ifdef CONFIG_EFI_LOAD_FILE2_INITRD
-	ret = efi_initrd_register();
-	if (ret != EFI_SUCCESS)
-		goto out;
-#endif
-#ifdef CONFIG_NET
+	if (IS_ENABLED(CONFIG_VIDEO)) {
+		ret = efi_gop_register();
+		if (ret != EFI_SUCCESS)
+			goto out;
+	}
+#ifdef CONFIG_NETDEVICES
 	ret = efi_net_register();
 	if (ret != EFI_SUCCESS)
 		goto out;
@@ -217,11 +335,19 @@ efi_status_t efi_init_obj_list(void)
 	if (ret != EFI_SUCCESS)
 		goto out;
 
+	ret = efi_init_capsule();
+	if (ret != EFI_SUCCESS)
+		goto out;
+
 	/* Initialize EFI runtime services */
 	ret = efi_reset_system_init();
 	if (ret != EFI_SUCCESS)
 		goto out;
 
+	/* Execute capsules after reboot */
+	if (IS_ENABLED(CONFIG_EFI_CAPSULE_ON_DISK) &&
+	    !IS_ENABLED(CONFIG_EFI_CAPSULE_ON_DISK_EARLY))
+		ret = efi_launch_capsules();
 out:
 	efi_obj_list_initialized = ret;
 	return ret;

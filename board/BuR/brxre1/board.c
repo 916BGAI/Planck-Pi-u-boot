@@ -21,6 +21,7 @@
 #include <asm/arch/gpio.h>
 #include <asm/arch/sys_proto.h>
 #include <asm/arch/mem.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
 #include <asm/emif.h>
 #include <asm/gpio.h>
@@ -165,8 +166,8 @@ int board_late_init(void)
 	/* setup othbootargs for bootvx-command (vxWorks bootline) */
 	snprintf(othbootargs, sizeof(othbootargs),
 		 "u=vxWorksFTP pw=vxWorks o=0x%08x;0x%08x;0x%08x;0x%08x",
-		 (u32)gd->fb_base - 0x20,
-		 (u32)env_get_ulong("vx_memtop", 16, gd->fb_base - 0x20),
+		 (u32)gd->relocaddr,
+		 (u32)env_get_ulong("vx_memtop", 16, gd->relocaddr),
 		 (u32)env_get_ulong("vx_romfsbase", 16, 0),
 		 (u32)env_get_ulong("vx_romfssize", 16, 0));
 	env_set("othbootargs", othbootargs);

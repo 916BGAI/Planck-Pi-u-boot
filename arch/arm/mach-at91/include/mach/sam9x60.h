@@ -128,6 +128,9 @@
 #define ARCH_ID_SAM9X60		0x819b35a0
 #define ARCH_ID_VERSION_MASK	0x1f
 #define ARCH_EXID_SAM9X60	0x00000000
+#define ARCH_EXID_SAM9X60_D6K	0x00000011
+#define ARCH_EXID_SAM9X60_D5M	0x00000001
+#define ARCH_EXID_SAM9X60_D1G	0x00000010
 
 #define cpu_is_sam9x60()	(get_chip_id() == ARCH_ID_SAM9X60)
 
@@ -137,7 +140,7 @@
 #define ATMEL_CPU_NAME	get_cpu_name()
 
 /* Timer */
-#define CONFIG_SYS_TIMER_COUNTER	0xfffffe4c
+#define CFG_SYS_TIMER_COUNTER	0xfffffe4c
 
 /*
  * Other misc defines
@@ -151,8 +154,8 @@
 /*
  * PMECC table in ROM
  */
-#define ATMEL_PMECC_INDEX_OFFSET_512	0x8000
-#define ATMEL_PMECC_INDEX_OFFSET_1024	0x10000
+#define ATMEL_PMECC_INDEX_OFFSET_512	0x0000
+#define ATMEL_PMECC_INDEX_OFFSET_1024	0x8000
 
 /*
  * SAM9X60 specific prototypes
